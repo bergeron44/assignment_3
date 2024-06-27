@@ -1,7 +1,8 @@
 package bgu.spl.net.impl.tftp;
 
-import bgu.spl.net.api.MessageEncoderDecoder;
 import java.util.Arrays;
+
+import bgu.spl.net.api.MessageEncoderDecoder;
 
 public class TftpEncoderDecoder implements MessageEncoderDecoder<byte[]> {
 
@@ -41,6 +42,21 @@ public class TftpEncoderDecoder implements MessageEncoderDecoder<byte[]> {
                     if (nextByte == 0) { // End of error message
                         return finalizePacket();
                     }
+                    break;
+                case 6: // DIRQ
+                    // TODO
+                    break;
+                case 7: // LOGRQ
+                    // TODO
+                    break;
+                case 8: // DELRQ
+                    // TODO
+                    break;
+                case 9: // BCAST
+                    // TODO
+                    break;
+                case 10: // DISC
+                    // TODO
                     break;
             }
         }
