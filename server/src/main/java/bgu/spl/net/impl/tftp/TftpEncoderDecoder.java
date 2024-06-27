@@ -2,8 +2,8 @@ package bgu.spl.net.impl.tftp;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import bgu.spl.net.api.MessageEncoderDecoder;
-import scala.collection.immutable.ArraySeq;
 
 public class TftpEncoderDecoder implements MessageEncoderDecoder<byte[]> {
 
@@ -26,12 +26,12 @@ public class TftpEncoderDecoder implements MessageEncoderDecoder<byte[]> {
                 case 2: // WRQ
                 case 7: // LOGRQ
                 case 8: // DELRQ
-                    if (nextByte == 0) {
+                    if (nextByte == (byte) 0) { // End of filename or mode
                         return finalizePacket();
                     }
                     break;
                 case 3: // DATA
-                    if (len >= 4 + ((buffer[2] << 8) | (buffer[3] & 0xFF))) {
+                    if (len >= 4 + ((buffer[2] << 8) | (buffer[3] & 0xFF))) { // Length of data block
                         return finalizePacket();
                     }
                     break;
@@ -41,7 +41,7 @@ public class TftpEncoderDecoder implements MessageEncoderDecoder<byte[]> {
                     }
                     break;
                 case 5: // ERROR
-                    if (nextByte == 0) {
+                    if (nextByte == (byte) 0) { // End of error message
                         return finalizePacket();
                     }
                     break;
@@ -52,7 +52,7 @@ public class TftpEncoderDecoder implements MessageEncoderDecoder<byte[]> {
                     }
                     break;
                 case 9: // BCAST
-                    if (nextByte == 0) {
+                    if (nextByte == (byte) 0) {
                         return finalizePacket();
                     }
                     break;
@@ -63,8 +63,8 @@ public class TftpEncoderDecoder implements MessageEncoderDecoder<byte[]> {
     }
 
     private byte[] finalizePacket() {
-        byte[] packet = ArraySeq.copyOf(buffer, len);
-        len = 0;
+        byte[] packet = Arrays.copyOf(buffer, len);
+        len = 0; // Reset for next packet
         return packet;
     }
 
@@ -96,18 +96,17 @@ public class TftpEncoderDecoder implements MessageEncoderDecoder<byte[]> {
     }
 
     private byte[] encodeRequest(byte[] message) {
-        ByteBuffer buffer = ByteBuffer.allocate(message.length + 2);
-        buffer.put(message, 0, 2); // Copy opcode
-        buffer.put(message, 2, message.length - 2); // Copy rest of the message
+        ByteBuffer buffer = ByteBuffer.allocate(message.length + 1);
+        buffer.put(message, 0, message.length); // Copy opcode, filename, and mode
         buffer.put((byte) 0); // Null terminator
         return buffer.array();
     }
 
     private byte[] encodeData(byte[] message) {
-        int blockSize = ((message[2] << 8) | (message[3] & 0xFF));
-        ByteBuffer buffer = ByteBuffer.allocate(4 + blockSize);
+        int dataLength = message.length - 4;
+        ByteBuffer buffer = ByteBuffer.allocate(4 + dataLength);
         buffer.put(message, 0, 4); // Copy opcode and block number
-        buffer.put(message, 4, blockSize); // Copy data
+        buffer.put(message, 4, dataLength); // Copy data
         return buffer.array();
     }
 
