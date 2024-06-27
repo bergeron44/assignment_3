@@ -1,8 +1,8 @@
 package bgu.spl.net.impl.tftp;
 
-import java.util.Arrays;
-
 import bgu.spl.net.api.MessageEncoderDecoder;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 
 public class TftpEncoderDecoder implements MessageEncoderDecoder<byte[]> {
 
@@ -18,18 +18,19 @@ public class TftpEncoderDecoder implements MessageEncoderDecoder<byte[]> {
 
         buffer[len++] = nextByte;
 
-        // Check if the packet is complete based on the opcode (first 2 bytes)
         if (len >= 2) {
             short opcode = (short) ((buffer[0] << 8) | (buffer[1] & 0xFF));
             switch (opcode) {
                 case 1: // RRQ
                 case 2: // WRQ
-                    if (nextByte == 0) { // End of filename or mode
+                case 7: // LOGRQ
+                case 8: // DELRQ
+                    if (nextByte == 0) {
                         return finalizePacket();
                     }
                     break;
                 case 3: // DATA
-                    if (len >= 4 + (buffer[2] << 8 | buffer[3] & 0xFF)) { // Length of data block
+                    if (len >= 4 + ((buffer[2] << 8) | (buffer[3] & 0xFF))) {
                         return finalizePacket();
                     }
                     break;
@@ -39,24 +40,20 @@ public class TftpEncoderDecoder implements MessageEncoderDecoder<byte[]> {
                     }
                     break;
                 case 5: // ERROR
-                    if (nextByte == 0) { // End of error message
+                    if (nextByte == 0) {
                         return finalizePacket();
                     }
                     break;
                 case 6: // DIRQ
-                    // TODO
-                    break;
-                case 7: // LOGRQ
-                    // TODO
-                    break;
-                case 8: // DELRQ
-                    // TODO
+                case 10: // DISC
+                    if (len == 2) {
+                        return finalizePacket();
+                    }
                     break;
                 case 9: // BCAST
-                    // TODO
-                    break;
-                case 10: // DISC
-                    // TODO
+                    if (nextByte == 0) {
+                        return finalizePacket();
+                    }
                     break;
             }
         }
