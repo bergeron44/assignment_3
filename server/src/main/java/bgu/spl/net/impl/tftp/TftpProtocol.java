@@ -24,44 +24,45 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
         // LOGRQ, DELRQ, BCAST, DISC)
         // Send appropriate response using connections.send(connectionId,
         // responseMessage)
-        if (message.length >= 2) {
+        byte[] responsePacket=null;
             short opcode = (short) ((buffer[0] << 8) | (buffer[1] & 0xFF));
             switch (opcode) {
                 case 1: // RRQ
-                    handleRRQ(message);
+                responsePacket=handleRRQ(message);
                     break;
                 case 2: // WRQ
-                    handleWRQ(message);
+                responsePacket=handleWRQ(message);
                     break;
                 case 7: // LOGRQ
-                    handleLOGRQ(message);
+                responsePacket=handleLOGRQ(message);
                     break;
                 case 8: // DELRQ
-                    handleDELRQ(message);
+                responsePacket=handleDELRQ(message);
                     break;
                 case 3: // DATA
-                    handleDATA(message);
+                responsePacket=handleDATA(message);
                     break;
                 case 4: // ACK
-                    handleACK(message);
+                responsePacket=handleACK(message);
                     break;
                 case 5: // ERROR
-                    handleERROR(message);
+                responsePacket=handleERROR(message);
                     break;
                 case 6: // DIRQ
-                    handleDIRQ(message);
+                responsePacket=handleDIRQ(message);
                     break;
                 case 10: // DISC
-                    handleDISC(message);
+                responsePacket=handleDISC(message);
                     break;
                 case 9: // BCAST
-                    handleBCAST(message);
+                responsePacket=handleBCAST(message);
                     break;
             }
-        }
-        return;
     }
+    private byte[] handleWRQ(byte[] message){
 
+        return true;
+    }
     @Override
     public boolean shouldTerminate() {
         return shouldTerminate;
