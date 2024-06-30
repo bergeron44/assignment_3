@@ -13,6 +13,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
     private int connectionId;
     private Connections<byte[]> connections;
     private boolean shouldTerminate = false;
+    private LinkedTransferQueue<byte[]> data = new LinkedTransferQueue<>();
     private String fileName = "";
     private String state = "INIT";
     private static final int BASE_SERVER_CONNECTION_ID = 1;
@@ -113,7 +114,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
             sendError(connectionId, 5, "File already exists", connections);
         } else {
             fileName = filename;
-            state = "ACK";
+            state = "DATA";
             sendAck(connectionId, (short) 0, connections);
         }
     }
@@ -124,18 +125,18 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
     }
 
     private void handleData(byte[] message, int connectionId, Connections<byte[]> connections) {
-        short blockNumber = TftpUtils.extractShort(message, 4);
-        if (blockNumber != data.size())
-            sendError(connectionId, connectionId, fileName, connections);
-        else {
-            dataPacketSize--;
-            data.put(message);
-            sendAck(connectionId, 0, connections);
-            if (dataPacketSize == 0) {
-                state = "BASETRANSFER";
-                proceedWithFileTransfer(connectionId, data.size(), connections);
+            short blockNumber = TftpUtils.extractShort(message, 4);
+            if (blockNumber != data.size()+1)
+                sendError(connectionId, connectionId, fileName, connections);
+            else {
+                data.put(message);
+                sendAck(connectionId, 0, connections);
+                if(dataPacketSize==0){
+                    state="BASETRANSFER";
+                    proceedWithFileTransfer(connectionId, data.size(), connections);
+                }
             }
-        }
+        
     }
 
     private void handleAck(byte[] message, int connectionId, Connections<byte[]> connections) {

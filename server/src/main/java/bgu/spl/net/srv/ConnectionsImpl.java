@@ -3,21 +3,19 @@ package bgu.spl.net.srv;
 import java.util.HashMap;
 import java.util.Map;
 
-public class ByteConnections implements Connections<byte[]> {
+public class ConnectionsImpl<T> implements Connections<byte[]> {
 
     private Map<Integer, ConnectionHandler<byte[]>> connectionMap;
 
-    public ByteConnections() {
+    public ConnectionsImpl() {
         this.connectionMap = new HashMap<>();
     }
 
-    
     public void connect(int connectionId, ConnectionHandler<byte[]> handler) {
         connectionMap.put(connectionId, handler);
         System.out.println("Connection established for connectionId: " + connectionId);
     }
 
-  
     public boolean send(int connectionId, byte[] msg) {
         ConnectionHandler<byte[]> handler = connectionMap.get(connectionId);
         if (handler != null) {
