@@ -24,7 +24,11 @@ public class ConnectionsImpl<T> implements Connections<T> {
       return;
     connectionsNameMap.put(userName, connectionId);
   }
-
+  public void logout(String userName) {
+    if (connectionsNameMap.get(userName) != null)
+      return;
+      connectionsNameMap.remove(userName);
+  }
   //
   @Override
   public boolean send(int connectionId, T msg) {
@@ -43,7 +47,6 @@ public class ConnectionsImpl<T> implements Connections<T> {
     @Override
     public void disconnect(int connectionId) {
         connectionMap.remove(connectionId);
-        connectionsNameMap.remove(connectionId);
         System.out.println("Connection closed for connectionId: " + connectionId);
     }
 }
