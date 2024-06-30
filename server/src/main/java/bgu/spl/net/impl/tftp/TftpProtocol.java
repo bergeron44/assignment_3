@@ -16,6 +16,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
     private LinkedTransferQueue<byte[]> data = new LinkedTransferQueue<>();
     private String fileName = "";
     private String state = "INIT";
+    private boolean login=false;
     private static final int BASE_SERVER_CONNECTION_ID = 1;
 
     @Override
@@ -78,10 +79,11 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
 
     private void handleLogrq(byte[] message, int connectionId, Connections<byte[]> connections) {
         String username = TftpUtils.extractString(message, 2);
-        if (isUserLoggedIn(username)) {
+        if (connections.isExist(username)) {
             sendError(connectionId, 7, "User already logged in", connections);
         } else {
-            loginUser(username, connectionId);
+            connections.login(username,connectionId);
+            login=true;
             sendAck(connectionId, 0, connections);
         }
     }
@@ -170,14 +172,6 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
     }
 
     // Utility methods
-
-    private boolean isUserLoggedIn(String username) {
-        return loggedInUsers.containsValue(username);
-    }
-
-    private void loginUser(String username, int connectionId) {
-        loggedInUsers.put(connectionId, username);
-    }
 
     private void sendAck(int connectionId, int blockNumber, Connections<byte[]> connections) {
         byte[] ackPacket = TftpUtils.createAckPacket((short) blockNumber);
