@@ -44,7 +44,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
                 else if (state == "DATA")
                     handleData(message, connectionId, connections);
                 else
-                    sendError(connectionId, opcode, fileName, connections);
+                    sendError(connectionId, opcode, fileName);
                 break;
             case 4:
                 handleAck(message, connectionId, connections);
@@ -68,7 +68,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
                 handleDisc(connectionId, connections);
                 break;
             default:
-                sendError(connectionId, 4, "Illegal TFTP operation", connections);
+                sendError(connectionId, 4, "Illegal TFTP operation");
         }
     }
 
@@ -82,7 +82,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
     private void handleLogrq(byte[] message, int connectionId, Connections<byte[]> connections) {
         String username = TftpUtils.extractString(message, 2);
         if (((ConnectionsImpl) connections).isExist(username)) {
-            sendError(connectionId, 7, "User already logged in", connections);
+            sendError(connectionId, 7, "User already logged in");
         } else {
             ((ConnectionsImpl) connections).login(username,connectionId);
             login=true;
@@ -93,7 +93,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
     private void handleDelrq(byte[] message, int connectionId, Connections<byte[]> connections) {
         String filename = TftpUtils.extractString(message, 2);
         if (!fileExists(filename)) {
-            sendError(connectionId, 1, "File not found", connections);
+            sendError(connectionId, 1, "File not found");
         } else {
             deleteFile(filename);
             sendAck(connectionId, 0, connections);
@@ -104,7 +104,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
     private void handleRrq(byte[] message, int connectionId, Connections<byte[]> connections) {
         String filename = TftpUtils.extractString(message, 2);
         if (!fileExists(filename)) {
-            sendError(connectionId, 1, "File not found", connections);
+            sendError(connectionId, 1, "File not found");
         } else {
             sendAck(connectionId, (short) 0, connections);
             state = "BaseACK";
@@ -115,7 +115,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
     private void handleWrq(byte[] message, int connectionId, Connections<byte[]> connections) {
         String filename = TftpUtils.extractString(message, 2);
         if (fileExists(filename)) {
-            sendError(connectionId, 5, "File already exists", connections);
+            sendError(connectionId, 5, "File already exists");
         } else {
             fileName = filename;
             state = "DATA";
@@ -131,7 +131,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
     private void handleData(byte[] message, int connectionId, Connections<byte[]> connections) {
             short blockNumber = TftpUtils.extractShort(message, 4);
             if (blockNumber != data.size()+1)
-                sendError(connectionId, connectionId, fileName, connections);
+                sendError(connectionId, connectionId, fileName);
             else {
                 data.put(message);
                 sendAck(connectionId, 0, connections);
@@ -168,7 +168,14 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
     }
 
     private void handleDisc(int connectionId, Connections<byte[]> connections) {
+        if(!login){
+            sendError(connectionId, 0, "User isn't logged in");
+            return;
+        }
+        synchronized (((ConnectionsImpl)connections).Lock) {
         sendAck(connectionId, 0, connections);
+        connections.disconnect(connectionId);
+        }
         shouldTerminate = true;
     }
 
@@ -179,7 +186,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
         connections.send(connectionId, ackPacket);
     }
 
-    private void sendError(int connectionId, int errorCode, String errorMessage, Connections<byte[]> connections) {
+    private void sendError(int connectionId, int errorCode, String errorMessage) {
         byte[] errorPacket = TftpUtils.createErrorPacket(errorCode, errorMessage);
         connections.send(connectionId, errorPacket);
     }
