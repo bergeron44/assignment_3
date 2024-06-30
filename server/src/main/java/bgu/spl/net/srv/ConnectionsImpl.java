@@ -17,6 +17,10 @@ public class ConnectionsImpl<T> implements Connections<T> {
       if (connectionMap.get(connectionId) != null) return;
       connectionMap.put(connectionId, handler);
     }
+    public void logIn(String userName,int connectionId) {
+      if (connectionMap.get(connectionId) != null) return;
+      connectionsNameMap.put(userName,connectionId);
+    }
 
     @Override
     public boolean send(int connectionId, T msg) {
@@ -24,7 +28,12 @@ public class ConnectionsImpl<T> implements Connections<T> {
       connectionMap.get(connectionId).send(msg);
       return true;
     }
+    public boolean isExsit(String userName) {
+      if (connectionsNameMap.get(userName) == null) 
+          return false;
 
+      return true;
+    }
     @Override
     public void disconnect(int connectionId) {
         connectionMap.remove(connectionId);
