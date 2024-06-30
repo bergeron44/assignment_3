@@ -17,8 +17,9 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
     private boolean shouldTerminate = false;
     private LinkedTransferQueue<byte[]> data = new LinkedTransferQueue<>();
     private String fileName = "";
+    private String connectionName;
     private String state = "INIT";
-    private boolean login=false;
+    private boolean login = false;
     private static final int BASE_SERVER_CONNECTION_ID = 1;
 
     @Override
@@ -84,8 +85,9 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
         if (((ConnectionsImpl) connections).isExist(username)) {
             sendError(connectionId, 7, "User already logged in");
         } else {
-            ((ConnectionsImpl) connections).login(username,connectionId);
-            login=true;
+            ((ConnectionsImpl) connections).login(username, connectionId);
+            login = true;
+            connectionName = username;
             sendAck(connectionId, 0, connections);
         }
     }
@@ -129,18 +131,18 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
     }
 
     private void handleData(byte[] message, int connectionId, Connections<byte[]> connections) {
-            short blockNumber = TftpUtils.extractShort(message, 4);
-            if (blockNumber != data.size()+1)
-                sendError(connectionId, connectionId, fileName);
-            else {
-                data.put(message);
-                sendAck(connectionId, 0, connections);
-                if(dataPacketSize==0){
-                    state="BASETRANSFER";
-                    proceedWithFileTransfer(connectionId, data.size(), connections);
-                }
+        short blockNumber = TftpUtils.extractShort(message, 4);
+        if (blockNumber != data.size() + 1)
+            sendError(connectionId, connectionId, fileName);
+        else {
+            data.put(message);
+            sendAck(connectionId, 0, connections);
+            if (dataPacketSize == 0) {
+                state = "BASETRANSFER";
+                proceedWithFileTransfer(connectionId, data.size(), connections);
             }
-        
+        }
+
     }
 
     private void handleAck(byte[] message, int connectionId, Connections<byte[]> connections) {
@@ -168,14 +170,13 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
     }
 
     private void handleDisc(int connectionId, Connections<byte[]> connections) {
-        if(!login){
+        if (!login) {
             sendError(connectionId, 0, "User isn't logged in");
             return;
         }
-        synchronized (((ConnectionsImpl)connections).Lock) {
+        ((ConnectionsImpl) connections).logout(connectionName);
         sendAck(connectionId, 0, connections);
         connections.disconnect(connectionId);
-        }
         shouldTerminate = true;
     }
 
