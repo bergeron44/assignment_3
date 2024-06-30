@@ -168,7 +168,6 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
     }
 
     private void handleDisc(int connectionId, Connections<byte[]> connections) {
-        disconnectUser(connectionId);
         sendAck(connectionId, 0, connections);
         shouldTerminate = true;
     }
