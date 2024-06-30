@@ -21,7 +21,7 @@ public class ConnectionsImpl<T> implements Connections<T> {
       if (connectionMap.get(connectionId) != null) return;
       connectionsNameMap.put(userName,connectionId);
     }
-
+//
     @Override
     public boolean send(int connectionId, T msg) {
       if (connectionMap.get(connectionId) == null) return false;
