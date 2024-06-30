@@ -9,6 +9,8 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.concurrent.LinkedTransferQueue;
 
+import bgu.spl.net.srv.ConnectionsImpl;
+
 public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
     private int connectionId;
     private Connections<byte[]> connections;
@@ -79,10 +81,10 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
 
     private void handleLogrq(byte[] message, int connectionId, Connections<byte[]> connections) {
         String username = TftpUtils.extractString(message, 2);
-        if (connections.isExist(username)) {
+        if (((ConnectionsImpl) connections).isExist(username)) {
             sendError(connectionId, 7, "User already logged in", connections);
         } else {
-            connections.login(username,connectionId);
+            ((ConnectionsImpl) connections).login(username,connectionId);
             login=true;
             sendAck(connectionId, 0, connections);
         }
