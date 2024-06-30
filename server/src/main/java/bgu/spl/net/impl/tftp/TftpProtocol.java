@@ -6,21 +6,22 @@ import bgu.spl.net.srv.Connections;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.HashMap;
-import java.util.Map;
+import java.util.LinkedList;
+import java.util.concurrent.LinkedTransferQueue;
 
 public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
     private int connectionId;
     private Connections<byte[]> connections;
     private boolean shouldTerminate = false;
-
-    // Maps to keep track of logged in users and ongoing file transfers
-    private Map<Integer, String> loggedInUsers = new HashMap<>();
-    private Map<Integer, String> fileTransfers = new HashMap<>();
+    private String fileName = "";
+    private String state = "INIT";
+    private static final int BASE_SERVER_CONNECTION_ID = 1;
 
     @Override
     public void start(int connectionId, Connections<byte[]> connections) {
         this.connectionId = connectionId;
         this.connections = connections;
+        this.state = "WAITING";
     }
 
     @Override
@@ -34,7 +35,12 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
                 handleWrq(message, connectionId, connections);
                 break;
             case 3:
-                handleData(message, connectionId, connections);
+                if (state == "BASEDATA")
+                    handleBaseData(message, connectionId, connections);
+                else if (state == "DATA")
+                    handleData(message, connectionId, connections);
+                else
+                    sendError(connectionId, opcode, fileName, connections);
                 break;
             case 4:
                 handleAck(message, connectionId, connections);
@@ -95,7 +101,9 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
         if (!fileExists(filename)) {
             sendError(connectionId, 1, "File not found", connections);
         } else {
-            sendFileToClient(filename, connectionId, connections);
+            sendAck(connectionId, (short) 0, connections);
+            state = "BaseACK";
+            connections.send(BASE_SERVER_CONNECTION_ID, message);
         }
     }
 
@@ -104,8 +112,9 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
         if (fileExists(filename)) {
             sendError(connectionId, 5, "File already exists", connections);
         } else {
-            prepareToReceiveFile(filename, connectionId);
-            sendAck(connectionId, 0, connections);
+            fileName = filename;
+            state = "ACK";
+            sendAck(connectionId, (short) 0, connections);
         }
     }
 
@@ -115,19 +124,35 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
     }
 
     private void handleData(byte[] message, int connectionId, Connections<byte[]> connections) {
-        int blockNumber = TftpUtils.extractShort(message, 2);
-        byte[] data = Arrays.copyOfRange(message, 4, message.length);
-        writeDataToFile(connectionId, blockNumber, data);
-        sendAck(connectionId, blockNumber, connections);
+        short blockNumber = TftpUtils.extractShort(message, 4);
+        if (blockNumber != data.size())
+            sendError(connectionId, connectionId, fileName, connections);
+        else {
+            dataPacketSize--;
+            data.put(message);
+            sendAck(connectionId, 0, connections);
+            if (dataPacketSize == 0) {
+                state = "BASETRANSFER";
+                proceedWithFileTransfer(connectionId, data.size(), connections);
+            }
+        }
     }
 
     private void handleAck(byte[] message, int connectionId, Connections<byte[]> connections) {
         int blockNumber = TftpUtils.extractShort(message, 2);
-        proceedWithFileTransfer(connectionId, blockNumber, connections);
+        if (state == "DATAACK") {
+            state = "DATA";
+            proceedWithFileTransfer(BASE_SERVER_CONNECTION_ID, blockNumber, connections);
+        } else if (state == "BASEDATAACK") {
+            state = "BASEDATA";
+            proceedWithFileTransfer(connectionId, blockNumber, connections);
+        }
+        // other cases... TODO
     }
 
     private void handleBcast(byte[] message, int connectionId, Connections<byte[]> connections) {
-        // This handler is usually server-initiated, so implementation might vary based on your server logic
+        // This handler is usually server-initiated, so implementation might vary based
+        // on your server logic
         broadcastFileChange(message);
     }
 
@@ -154,7 +179,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
     }
 
     private void sendAck(int connectionId, int blockNumber, Connections<byte[]> connections) {
-        byte[] ackPacket = TftpUtils.createAckPacket(blockNumber);
+        byte[] ackPacket = TftpUtils.createAckPacket((short) blockNumber);
         connections.send(connectionId, ackPacket);
     }
 
@@ -180,10 +205,6 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
         // Implement file sending
     }
 
-    private void prepareToReceiveFile(String filename, int connectionId) {
-        fileTransfers.put(connectionId, filename);
-    }
-
     private String getDirectoryListing() {
         // Implement directory listing retrieval
         return "";
@@ -198,7 +219,9 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
     }
 
     private void proceedWithFileTransfer(int connectionId, int blockNumber, Connections<byte[]> connections) {
-        // Implement file transfer continuation
+        dataPacketSize = blockNumber;
+        data.clear();
+        sendAck(connectionId, 0, connections);
     }
 
     private void disconnectUser(int connectionId) {
@@ -221,10 +244,13 @@ class TftpUtils {
         return new String(message, startIndex, endIndex - startIndex, StandardCharsets.UTF_8);
     }
 
-    public static int extractShort(byte[] message, int startIndex) {
-        return ((message[startIndex] & 0xff) << 8) | (message[startIndex + 1] & 0xff);
+    public static short extractShort(byte[] message, int startIndex) {
+        int num = ((message[startIndex] & 0xff) << 8) | (message[startIndex + 1] & 0xff);
+        return (short) num;
     }
 
-    public static byte[] createAckPacket(int blockNumber) {
-        byte[] packet = new byte[4];
-       
+    public static byte[] createAckPacket(short blockNumber) {
+        return new byte[] { (byte) ((short) 4 >> 8), (byte) ((short) 4), (byte) (blockNumber >> 8),
+                (byte) (blockNumber) };
+    }
+}
