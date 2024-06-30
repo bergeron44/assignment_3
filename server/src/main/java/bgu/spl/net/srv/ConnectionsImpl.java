@@ -38,12 +38,12 @@ public class ConnectionsImpl<T> implements Connections<T> {
     if (connectionsNameMap.get(userName) == null)
       return false;
 
-    return true;
-  }
-
-  @Override
-  public void disconnect(int connectionId) {
-    connectionMap.remove(connectionId);
-    System.out.println("Connection closed for connectionId: " + connectionId);
-  }
+      return true;
+    }
+    @Override
+    public void disconnect(int connectionId) {
+        connectionMap.remove(connectionId);
+        connectionsNameMap.remove(connectionId);
+        System.out.println("Connection closed for connectionId: " + connectionId);
+    }
 }
