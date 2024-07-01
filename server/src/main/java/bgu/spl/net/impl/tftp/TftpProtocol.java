@@ -12,6 +12,7 @@ import java.util.concurrent.LinkedTransferQueue;
 import bgu.spl.net.srv.ConnectionsImpl;
 
 public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
+    String filesPath = System.getProperty("user.dir") + "/" + "Files";
     private int connectionId;
     private Connections<byte[]> connections;
     private boolean shouldTerminate = false;
@@ -20,7 +21,6 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
     private String connectionName;
     private String state = "INIT";
     private boolean login = false;
-    private static final int BASE_SERVER_CONNECTION_ID = 1;
 
     @Override
     public void start(int connectionId, Connections<byte[]> connections) {
@@ -104,7 +104,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
             fileName = filename;
             state = "DATA";
             sendAck(connectionId, (short) 0, connections);
-            
+
         }
     }
 
