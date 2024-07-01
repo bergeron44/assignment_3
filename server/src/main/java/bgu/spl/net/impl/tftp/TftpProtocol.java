@@ -5,8 +5,10 @@ import bgu.spl.net.srv.Connections;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.nio.Buffer;
+import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
@@ -21,6 +23,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
     private boolean shouldTerminate = false;
     private LinkedTransferQueue<byte[]> data = new LinkedTransferQueue<>();
     private String fileName = "";
+    private byte[] lastPacket;
     private String connectionName;
     private String state = "INIT";
     private boolean login = false;
@@ -113,11 +116,33 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
                 byteBuffer.flip();
                 byte[] chank = new byte[bytesRead];
                 byteBuffer.get(chank);
-                
+                byte[] blockNum = new byte[] {
+                        ((byte) ((short) data.size() >> 8)),
+                        ((byte) ((short) data.size() & 0xff)),
+                };
+                byte[] packetSize = new byte[] {
+                        ((byte) (bytesRead >> 8)),
+                        (byte) (bytesRead & 0xff),
+                };
+                data.put(TftpUtils.concatenateArrays(
+                        new byte[] { 0, 3, packetSize[0], packetSize[1], blockNum[0], blockNum[1] },
+                        chank));
+                byteBuffer.clear();
             }
-        } catch (Exception e) {
-        }
+            fis.close();
+            // All the packet are ready for send
 
+        } catch (IOException e) {
+            e.printStackTrace();
+            // Error reading file
+            sendError(connectionId, 0, "Problem reading the file");
+            return;
+        }
+        if (data.isEmpty()) {
+            byte[] start = { 0, 3, 0, 0, 0, 1 };
+            data.add(start);
+        }
+        sendAck(data.size());
     }
 
     private void handleWrq(byte[] message, int connectionId, Connections<byte[]> connections) {
@@ -127,7 +152,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
         } else {
             fileName = filename;
             state = "DATA";
-            sendAck(connectionId, (short) 0, connections);
+            sendAck((short) 0);
 
         }
     }
@@ -138,9 +163,29 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
     private void handleData(byte[] message, int connectionId, Connections<byte[]> connections) {
     }
 
-    private void handleAck(byte[] message, int connectionId, Connections<byte[]> connections) {
-        int blockNumber = TftpUtils.extractShort(message, 2);
-        // other cases... TODO
+    public void handleAck(byte[] message, int connectionId, Connections<byte[]> connections) {
+        try {
+            ByteBuffer buffer = ByteBuffer.wrap(message);
+            short opcode = buffer.getShort();
+            short blockNumber = buffer.getShort();
+
+            if (opcode == 4) {
+                System.out.println("Received ACK for block number: " + blockNumber);
+
+                if (blockNumber == 0) {
+                    System.out.println("ACK for control packet (block number 0)");
+                } else {
+                    // ACK for DATA packet
+                    System.out.println("ACK for DATA packet, preparing next block");
+                    sendData(true);
+                }
+            } else {
+                System.err.println("Unexpected opcode received: " + opcode);
+            }
+
+        } catch (BufferUnderflowException e) {
+            System.err.println("Failed to parse ACK message: " + e.getMessage());
+        }
     }
 
     private void handleBcast(byte[] message, int connectionId, Connections<byte[]> connections) {
@@ -155,32 +200,60 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
     }
 
     // logout
-    private void handleDisc(int connectionId, Connections<byte[]> connections) {
+    private void handleDisc() {
         if (!login) {
-            sendError(connectionId, 0, "User isn't logged in");
+            sendError(0, "User isn't logged in");
             return;
         }
-        ((ConnectionsImpl) connections).logout(connectionName);
-        sendAck(connectionId, 0, connections);
+        connections.logout(connectionName);
+        sendAck(0);
         connections.disconnect(connectionId);
         shouldTerminate = true;
     }
 
     // Utility methods
 
-    private void sendAck(int connectionId, int blockNumber, Connections<byte[]> connections) {
+    private void sendAck(int blockNumber) {
         byte[] ackPacket = TftpUtils.createAckPacket((short) blockNumber);
         connections.send(connectionId, ackPacket);
     }
 
-    private void sendError(int connectionId, int errorCode, String errorMessage) {
-        byte[] errorPacket = TftpUtils.createErrorPacket(errorCode, errorMessage);
+    private void sendError(int errorCode, String errorMessage) {
+        byte[] errorPacket = TftpUtils.createErrorPacket((short) errorCode, errorMessage);
         connections.send(connectionId, errorPacket);
+    }
+
+    private void sendData(boolean backup) {
+        if (data.isEmpty()) {
+            sendError(0, "There is no Data to send");
+        } else {
+            if (backup)
+                connections.send(connectionId, lastPacket);
+            else {
+                lastPacket = data.poll();
+                connections.send(connectionId, lastPacket);
+            }
+        }
     }
 }
 
 // Utility class for TFTP operations
 class TftpUtils {
+
+    public static byte[] createErrorPacket(short errorCode, String errorMassage) {
+        byte[] opCodeByteArray = new byte[] {
+                (byte) (5 >> 8),
+                (byte) (5 & 0xff),
+        };
+        byte[] errorCodeArray = new byte[] {
+                (byte) (errorCode >> 8),
+                (byte) (errorCode & 0xff),
+        };
+        byte[] errorStart = TftpUtils.concatenateArrays(errorCodeArray, opCodeByteArray);
+        byte[] errorMsg = new String(errorMassage + new String(new byte[] { 0 }))
+                .getBytes();
+        return concatenateArrays(errorStart, errorMsg);
+    }
 
     public static String extractString(byte[] message, int startIndex) {
         int endIndex = startIndex;
@@ -198,5 +271,21 @@ class TftpUtils {
     public static byte[] createAckPacket(short blockNumber) {
         return new byte[] { (byte) ((short) 4 >> 8), (byte) ((short) 4), (byte) (blockNumber >> 8),
                 (byte) (blockNumber) };
+    }
+
+    public static byte[] concatenateArrays(byte[] array1, byte[] array2) {
+        // Calculate the size of the concatenated array
+        int totalLength = array1.length + array2.length;
+
+        // Create a new byte array to hold the concatenated data
+        byte[] result = new byte[totalLength];
+
+        // Copy the contents of the first array into the result array
+        System.arraycopy(array1, 0, result, 0, array1.length);
+
+        // Copy the contents of the second array into the result array
+        System.arraycopy(array2, 0, result, array1.length, array2.length);
+
+        return result;
     }
 }
