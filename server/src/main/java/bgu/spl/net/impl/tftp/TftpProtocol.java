@@ -9,9 +9,9 @@ import java.util.concurrent.LinkedTransferQueue;
 import bgu.spl.net.srv.ConnectionsImpl;
 
 public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
-    String filesPath = System.getProperty("user.dir") + "/" + "Files";
+    private String filesPath = System.getProperty("user.dir") + "/" + "Files";
     private int connectionId;
-    private Connections<byte[]> connections;
+    private ConnectionsImpl<byte[]> connections;
     private boolean shouldTerminate = false;
     private LinkedTransferQueue<byte[]> data = new LinkedTransferQueue<>();
     private String fileName = "";
@@ -22,7 +22,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
     @Override
     public void start(int connectionId, Connections<byte[]> connections) {
         this.connectionId = connectionId;
-        this.connections = connections;
+        this.connections = (ConnectionsImpl) connections;
         this.state = "WAITING";
     }
 
@@ -72,10 +72,10 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
 
     // Handler implementations
 
-    //login
-    private void handleLogrq(byte[] message, int connectionId, Connections<byte[]> connections) {
+    // login
+    private void handleLogrq(byte[] message, int connectionId) {
         String username = TftpUtils.extractString(message, 2);
-        if (((ConnectionsImpl) connections).isExist(username)) {
+        if (connections.isExist(username)) {
             sendError(connectionId, 7, "User already logged in");
         } else {
             ((ConnectionsImpl) connections).login(username, connectionId);
@@ -91,6 +91,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
 
     private void handleRrq(byte[] message, int connectionId, Connections<byte[]> connections) {
         String filename = TftpUtils.extractString(message, 2);
+
     }
 
     private void handleWrq(byte[] message, int connectionId, Connections<byte[]> connections) {
@@ -127,7 +128,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
         System.err.println("Error received from client " + connectionId + ": " + errorCode + " - " + errorMessage);
     }
 
-    //logout
+    // logout
     private void handleDisc(int connectionId, Connections<byte[]> connections) {
         if (!login) {
             sendError(connectionId, 0, "User isn't logged in");
