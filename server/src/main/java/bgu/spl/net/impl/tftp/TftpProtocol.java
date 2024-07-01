@@ -40,12 +40,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
                 handleWrq(message, connectionId, connections);
                 break;
             case 3:
-                if (state == "BASEDATA")
-                    handleBaseData(message, connectionId, connections);
-                else if (state == "DATA")
-                    handleData(message, connectionId, connections);
-                else
-                    sendError(connectionId, opcode, fileName);
+                handleData(message, connectionId, connections);
                 break;
             case 4:
                 handleAck(message, connectionId, connections);
@@ -80,6 +75,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
 
     // Handler implementations
 
+    //login
     private void handleLogrq(byte[] message, int connectionId, Connections<byte[]> connections) {
         String username = TftpUtils.extractString(message, 2);
         if (((ConnectionsImpl) connections).isExist(username)) {
@@ -94,24 +90,10 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
 
     private void handleDelrq(byte[] message, int connectionId, Connections<byte[]> connections) {
         String filename = TftpUtils.extractString(message, 2);
-        if (!fileExists(filename)) {
-            sendError(connectionId, 1, "File not found");
-        } else {
-            deleteFile(filename);
-            sendAck(connectionId, 0, connections);
-            broadcastFileDeletion(filename, connections);
-        }
     }
 
     private void handleRrq(byte[] message, int connectionId, Connections<byte[]> connections) {
         String filename = TftpUtils.extractString(message, 2);
-        if (!fileExists(filename)) {
-            sendError(connectionId, 1, "File not found");
-        } else {
-            sendAck(connectionId, (short) 0, connections);
-            state = "BaseACK";
-            connections.send(BASE_SERVER_CONNECTION_ID, message);
-        }
     }
 
     private void handleWrq(byte[] message, int connectionId, Connections<byte[]> connections) {
@@ -126,41 +108,19 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
     }
 
     private void handleDirq(int connectionId, Connections<byte[]> connections) {
-        String directoryListing = getDirectoryListing();
-        sendDirectoryListing(directoryListing, connectionId, connections);
     }
 
     private void handleData(byte[] message, int connectionId, Connections<byte[]> connections) {
-        short blockNumber = TftpUtils.extractShort(message, 4);
-        if (blockNumber != data.size() + 1)
-            sendError(connectionId, connectionId, fileName);
-        else {
-            data.put(message);
-            sendAck(connectionId, 0, connections);
-            if (dataPacketSize == 0) {
-                state = "BASETRANSFER";
-                proceedWithFileTransfer(connectionId, data.size(), connections);
-            }
-        }
-
     }
 
     private void handleAck(byte[] message, int connectionId, Connections<byte[]> connections) {
         int blockNumber = TftpUtils.extractShort(message, 2);
-        if (state == "DATAACK") {
-            state = "DATA";
-            proceedWithFileTransfer(BASE_SERVER_CONNECTION_ID, blockNumber, connections);
-        } else if (state == "BASEDATAACK") {
-            state = "BASEDATA";
-            proceedWithFileTransfer(connectionId, blockNumber, connections);
-        }
         // other cases... TODO
     }
 
     private void handleBcast(byte[] message, int connectionId, Connections<byte[]> connections) {
         // This handler is usually server-initiated, so implementation might vary based
         // on your server logic
-        broadcastFileChange(message);
     }
 
     private void handleError(byte[] message, int connectionId, Connections<byte[]> connections) {
@@ -169,6 +129,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
         System.err.println("Error received from client " + connectionId + ": " + errorCode + " - " + errorMessage);
     }
 
+    //logout
     private void handleDisc(int connectionId, Connections<byte[]> connections) {
         if (!login) {
             sendError(connectionId, 0, "User isn't logged in");
@@ -190,50 +151,6 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
     private void sendError(int connectionId, int errorCode, String errorMessage) {
         byte[] errorPacket = TftpUtils.createErrorPacket(errorCode, errorMessage);
         connections.send(connectionId, errorPacket);
-    }
-
-    private boolean fileExists(String filename) {
-        // Implement file existence check
-        return false;
-    }
-
-    private void deleteFile(String filename) {
-        // Implement file deletion
-    }
-
-    private void broadcastFileDeletion(String filename, Connections<byte[]> connections) {
-        // Implement file deletion broadcast
-    }
-
-    private void sendFileToClient(String filename, int connectionId, Connections<byte[]> connections) {
-        // Implement file sending
-    }
-
-    private String getDirectoryListing() {
-        // Implement directory listing retrieval
-        return "";
-    }
-
-    private void sendDirectoryListing(String directoryListing, int connectionId, Connections<byte[]> connections) {
-        // Implement directory listing sending
-    }
-
-    private void writeDataToFile(int connectionId, int blockNumber, byte[] data) {
-        // Implement data writing to file
-    }
-
-    private void proceedWithFileTransfer(int connectionId, int blockNumber, Connections<byte[]> connections) {
-        dataPacketSize = blockNumber;
-        data.clear();
-        sendAck(connectionId, 0, connections);
-    }
-
-    private void disconnectUser(int connectionId) {
-        loggedInUsers.remove(connectionId);
-    }
-
-    private void broadcastFileChange(byte[] message) {
-        // Implement file change broadcast
     }
 }
 
