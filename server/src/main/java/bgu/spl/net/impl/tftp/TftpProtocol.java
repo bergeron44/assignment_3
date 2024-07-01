@@ -85,12 +85,12 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
     private void handleLogrq(byte[] message, int connectionId) {
         String username = TftpUtils.extractString(message, 2);
         if (connections.isExist(username)) {
-            sendError( 7, "User already logged in");
+            sendError(7, "User already logged in");
         } else {
             ((ConnectionsImpl) connections).login(username, connectionId);
             login = true;
             connectionName = username;
-            sendAck( 0);
+            sendAck(0);
         }
     }
 
