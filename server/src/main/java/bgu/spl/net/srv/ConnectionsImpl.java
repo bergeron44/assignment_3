@@ -1,5 +1,6 @@
 package bgu.spl.net.srv;
 
+import java.util.Iterator;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class ConnectionsImpl<T> implements Connections<T> {
@@ -48,5 +49,16 @@ public class ConnectionsImpl<T> implements Connections<T> {
     public void disconnect(int connectionId) {
         connectionMap.remove(connectionId);
         System.out.println("Connection closed for connectionId: " + connectionId);
+    }
+
+    public boolean sendAll(int connectionId,T msg){
+      Iterator<Integer> it=connectionsNameMap.values().iterator();
+      while (it.hasNext()) {
+        int conId = it.next();
+        if (conId != connectionId) {
+          connectionMap.get(conId).send(msg);
+        }
+      }
+      return true;
     }
 }
