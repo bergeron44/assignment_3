@@ -3,6 +3,7 @@ package bgu.spl.net.impl.tftp;
 import bgu.spl.net.api.BidiMessagingProtocol;
 import bgu.spl.net.srv.Connections;
 
+import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.LinkedTransferQueue;
 
@@ -89,8 +90,13 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
         String filename = TftpUtils.extractString(message, 2);
     }
 
-    private void handleRrq(byte[] message, int connectionId, Connections<byte[]> connections) {
+    private void handleRrq(byte[] message) {
         String filename = TftpUtils.extractString(message, 2);
+        String filePath = filesPath + File.separator + filename;
+        File file = new File(filePath);
+        if(!file.exists()){//file doesnot exists
+            sendError(connectionId, connectionId, filename);
+        }
 
     }
 
