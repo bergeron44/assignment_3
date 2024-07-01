@@ -108,8 +108,8 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
             FileChannel channel = fis.getChannel();
             ByteBuffer byteBuffer = ByteBuffer.allocate(510);
 
-            int bytesRead = channel.read(byteBuffer);
-            while (bytesRead != -1) {
+            int bytesRead;
+            while ((bytesRead = channel.read(byteBuffer)) > 0) {
                 byteBuffer.flip();
                 byte[] chank = new byte[bytesRead];
                 byteBuffer.get(chank);
