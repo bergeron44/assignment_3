@@ -85,12 +85,12 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
     private void handleLogrq(byte[] message, int connectionId) {
         String username = TftpUtils.extractString(message, 2);
         if (connections.isExist(username)) {
-            sendError(connectionId, 7, "User already logged in");
+            sendError( 7, "User already logged in");
         } else {
             ((ConnectionsImpl) connections).login(username, connectionId);
             login = true;
             connectionName = username;
-            sendAck(connectionId, 0, connections);
+            sendAck( 0);
         }
     }
 
@@ -103,7 +103,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
         String filePath = filesPath + File.separator + filename;
         File file = new File(filePath);
         if (!file.exists()) {// file doesnot exists
-            sendError(connectionId, connectionId, filename);
+            sendError(connectionId, filename);
             return;
         }
         try {
@@ -135,7 +135,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
         } catch (IOException e) {
             e.printStackTrace();
             // Error reading file
-            sendError(connectionId, 0, "Problem reading the file");
+            sendError(0, "Problem reading the file");
             return;
         }
         if (data.isEmpty()) {
