@@ -10,8 +10,8 @@ import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.concurrent.LinkedTransferQueue;
 import java.util.List;
+import java.util.concurrent.LinkedTransferQueue;
 
 import bgu.spl.net.api.BidiMessagingProtocol;
 import bgu.spl.net.srv.Connections;
@@ -25,21 +25,22 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
     private LinkedTransferQueue<byte[]> data = new LinkedTransferQueue<>();
     private String fileName = "";
     private int expectedPackets;
-    private byte[] lastPacket;
     private String connectionName;
-    private String state = "INIT";
     private boolean login = false;
 
     @Override
     public void start(int connectionId, Connections<byte[]> connections) {
         this.connectionId = connectionId;
         this.connections = (ConnectionsImpl) connections;
-        this.state = "WAITING";
     }
 
     @Override
     public void process(byte[] message) {
         int opcode = TftpUtils.extractShort(message, 0);
+        if (opcode != 7 && !login) {
+            sendError(6, "User isn't logged in");
+            return;
+        }
         switch (opcode) {
             case 1:
                 handleRrq(message);
@@ -65,9 +66,6 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
             case 8:
                 handleDelrq(message);
                 break;
-            case 9:
-                handleBcast(message);
-                break;
             case 10:
                 handleDisc();
                 break;
@@ -86,7 +84,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
     // login
     private void handleLogrq(byte[] message) {
         String username = TftpUtils.extractString(message, 2);
-        if (connections.isExist(username)) {
+        if (connections.isExist(username) || login) {
             sendError(7, "User already logged in");
         } else {
             connections.login(username, connectionId);
@@ -107,6 +105,8 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
         boolean sucsesfuly = file.delete();
         if (!sucsesfuly)
             sendError(connectionId, filename);
+        else
+            sendBcast(filename, (short) 0);
     }
 
     private void handleRrq(byte[] message) {
@@ -229,9 +229,10 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
                 sendError(0, null);
             } else if (blockNumber == expectedPackets) {
                 boolean filecreated = uplode();
-                if (filecreated)
+                if (filecreated) {
                     System.out.println("the file create sucsesfuly");
-                else
+                    sendBcast(fileName, (short) 1);
+                } else
                     System.out.println("fail to create file");
             }
         } catch (BufferUnderflowException e) {
@@ -251,7 +252,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
                 if (blockNumber == 0) {
                     System.out.println("ACK for control packet (block number 0)");
                     if (!data.isEmpty())
-                        sendData(true);
+                        sendData();
                 } else {
                     // ACK for DATA packet
                     System.out.println("ACK for DATA packet, preparing next block");
@@ -266,10 +267,11 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
         }
     }
 
-    private void sendBcast(String filename, short add) {
+    private void sendBcast(String filename, short deleteOrAdd) {
         // This handler is usually server-initiated, so implementation might vary based
         // on your server logic
-        byte[] bCastStart = { 0, 9, 0 };
+        byte[] bCastStart = { 0, 9, (byte) (deleteOrAdd >> 8),
+                (byte) (deleteOrAdd & 0xff), };
         String fileNameWithNullByte = fileName + "\0";
         connections.sendAll(
                 connectionId,
@@ -280,14 +282,11 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
         int errorCode = TftpUtils.extractShort(message, 2);
         String errorMessage = TftpUtils.extractString(message, 4);
         System.err.println("Error received from client " + connectionId + ": " + errorCode + " - " + errorMessage);
+        data.clear();
     }
 
     // logout
     private void handleDisc() {
-        if (!login) {
-            sendError(0, "User isn't logged in");
-            return;
-        }
         connections.logout(connectionName);
         sendAck(0);
         connections.disconnect(connectionId);
@@ -306,16 +305,11 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
         connections.send(connectionId, errorPacket);
     }
 
-    private void sendData(boolean backup) {
+    private void sendData() {
         if (data.isEmpty()) {
             sendError(0, "There is no Data to send");
         } else {
-            if (backup)
-                connections.send(connectionId, lastPacket);
-            else {
-                lastPacket = data.poll();
-                connections.send(connectionId, lastPacket);
-            }
+            connections.send(connectionId, data.poll());
         }
     }
 
