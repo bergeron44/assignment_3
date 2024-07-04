@@ -55,10 +55,10 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
                 handleAck(message);
                 break;
             case 5:
-                handleError(message, connectionId, connections);
+                handleError(message);
                 break;
             case 6:
-                handleDirq(connectionId, connections);
+                handleDirq();
                 break;
             case 7:
                 handleLogrq(message);
@@ -168,7 +168,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
         sendAck((short) 0);
     }
 
-    private void handleDirq(int connectionId, Connections<byte[]> connections) {
+    private void handleDirq() {
         String directoryPath = filesPath;
         List<String> fileNames = getFileNamesFromDirectory(directoryPath);
 
@@ -278,7 +278,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
                 TftpUtils.concatenateArrays(bCastStart, fileNameWithNullByte.getBytes()));
     }
 
-    private void handleError(byte[] message, int connectionId, Connections<byte[]> connections) {
+    private void handleError(byte[] message) {
         int errorCode = TftpUtils.extractShort(message, 2);
         String errorMessage = TftpUtils.extractString(message, 4);
         System.err.println("Error received from client " + connectionId + ": " + errorCode + " - " + errorMessage);
