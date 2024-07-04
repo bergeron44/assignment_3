@@ -97,12 +97,15 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
     private void handleDelrq(byte[] message) {
         String filename = TftpUtils.extractString(message, 2);
         String filePath = filesPath + File.separator + filename;
+        connections.lock.writeLock().lock();
         File file = new File(filePath, filename);
         if (!file.exists()) {// file doesnot exists
             sendError(connectionId, filename);
+            connections.lock.writeLock().unlock();
             return;
         }
         boolean sucsesfuly = file.delete();
+        connections.lock.writeLock().unlock();
         if (!sucsesfuly)
             sendError(connectionId, filename);
         else
@@ -112,8 +115,10 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
     private void handleRrq(byte[] message) {
         String filename = TftpUtils.extractString(message, 2);
         String filePath = filesPath + File.separator + filename;
+        connections.lock.readLock().lock();
         File file = new File(filePath, filename);
         if (!file.exists()) {// file doesnot exists
+            connections.lock.readLock().unlock();
             sendError(connectionId, filename);
             return;
         }
@@ -121,7 +126,6 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
             FileInputStream fis = new FileInputStream(file);
             FileChannel channel = fis.getChannel();
             ByteBuffer byteBuffer = ByteBuffer.allocate(510);
-
             int bytesRead;
             while ((bytesRead = channel.read(byteBuffer)) > 0) {
                 byteBuffer.flip();
@@ -141,10 +145,12 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
                 byteBuffer.clear();
             }
             fis.close();
+            connections.lock.readLock().unlock();
             // All the packet are ready for send
 
         } catch (IOException e) {
             e.printStackTrace();
+            connections.lock.readLock().unlock();
             // Error reading file
             sendError(0, "Problem reading the file");
             return;
@@ -159,13 +165,32 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
     private void handleWrq(byte[] message) {
         String filename = TftpUtils.extractString(message, 2);
         String filePath = filesPath + File.separator + filename;
+        connections.lock.writeLock().lock();
         File file = new File(filePath, filename);
         if (file.exists()) {// file doesnot exists
+            connections.lock.writeLock().unlock();
             sendError(connectionId, filename);
             return;
         }
-        fileName = filename;
-        sendAck((short) 0);
+        try{
+            if(file.createNewFile())
+            {
+                fileName = filename;
+                sendAck((short) 0);
+            }  
+            else
+            {
+                sendError(0, null);
+            }    
+        }
+       catch(IOException E){
+        sendError(0, null);
+
+       }
+       finally{
+        connections.lock.writeLock().unlock();
+       }
+        
     }
 
     private void handleDirq() {
@@ -181,7 +206,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
 
     private List<String> getFileNamesFromDirectory(String directoryPath) {
         List<String> fileNames = new ArrayList<>();
-
+        connections.lock.readLock().lock();
         File directory = new File(directoryPath);
         File[] files = directory.listFiles();
 
@@ -191,7 +216,9 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
                     fileNames.add(file.getName());
                 }
             }
+            connections.lock.readLock().unlock();
         } else {
+            connections.lock.readLock().unlock();
             System.err.println("Directory not found or is empty: " + directoryPath);
         }
 
@@ -272,7 +299,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
         // on your server logic
         byte[] bCastStart = { 0, 9, (byte) (deleteOrAdd >> 8),
                 (byte) (deleteOrAdd & 0xff), };
-        String fileNameWithNullByte = fileName + "\0";
+        String fileNameWithNullByte = filename + "\0";
         connections.sendAll(
                 connectionId,
                 TftpUtils.concatenateArrays(bCastStart, fileNameWithNullByte.getBytes()));
@@ -315,35 +342,36 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
 
     public boolean uplode() {
         String filePath = filesPath + File.separator + fileName;
+        connections.lock.writeLock().lock();
         File file = new File(filePath, fileName);
-        if (file.exists()) {// file exists
+        if (!file.exists()) {// file does not exists
+            connections.lock.writeLock().unlock();
             return false;
         }
         LinkedTransferQueue<byte[]> backup = new LinkedTransferQueue<>();
         try {
-            boolean created = file.createNewFile();
-            if (created) {
-
-                FileOutputStream fos = new FileOutputStream(filePath);
-                while (!data.isEmpty()) {
-                    byte[] packet = data.poll();
-                    backup.put(packet);
-                    fos.write(packet);
-                }
-            } else {
-                return false;
+            FileOutputStream fos = new FileOutputStream(filePath);
+            while (!data.isEmpty()) {
+                byte[] packet = data.poll();
+                backup.put(packet);
+                fos.write(packet);
             }
+            connections.lock.writeLock().unlock();
         } catch (IOException e) {
+            file=new File(filePath, fileName);
+            file.delete(); 
             while (!data.isEmpty()) {
                 backup.put(data.poll());
             }
             while (!backup.isEmpty()) {
                 data.put(data.poll());
             }
+            connections.lock.writeLock().unlock();
             return false;
         }
         return true;
     }
+
 }
 
 // Utility class for TFTP operations
