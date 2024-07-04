@@ -100,14 +100,14 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
         connections.lock.writeLock().lock();
         File file = new File(filePath, filename);
         if (!file.exists()) {// file doesnot exists
-            sendError(connectionId, filename);
+            sendError(1, "file not found");
             connections.lock.writeLock().unlock();
             return;
         }
         boolean sucsesfuly = file.delete();
         connections.lock.writeLock().unlock();
         if (!sucsesfuly)
-            sendError(connectionId, filename);
+        sendError(2, "delte didnt secceded");
         else
             sendBcast(filename, (short) 0);
     }
@@ -119,7 +119,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
         File file = new File(filePath, filename);
         if (!file.exists()) {// file doesnot exists
             connections.lock.readLock().unlock();
-            sendError(connectionId, filename);
+            sendError(1, "file not found");
             return;
         }
         try {
@@ -152,7 +152,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
             e.printStackTrace();
             connections.lock.readLock().unlock();
             // Error reading file
-            sendError(0, "Problem reading the file");
+            sendError(2, "Problem reading the file");
             return;
         }
         if (data.isEmpty()) {
@@ -167,9 +167,9 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
         String filePath = filesPath + File.separator + filename;
         connections.lock.writeLock().lock();
         File file = new File(filePath, filename);
-        if (file.exists()) {// file doesnot exists
+        if (file.exists()) {// file  exists
             connections.lock.writeLock().unlock();
-            sendError(connectionId, filename);
+            sendError(5, "file found");
             return;
         }
         try{
@@ -180,11 +180,11 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
             }  
             else
             {
-                sendError(0, null);
+                sendError(2, "access vaioltion");
             }    
         }
        catch(IOException E){
-        sendError(0, null);
+        sendError(2, "access vaioltion");
 
        }
        finally{
@@ -253,7 +253,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
             data.add(allData);
             if ((packetSize < 512) && (blockNumber != expectedPackets)) {
                 System.out.println("not all expected packets received");
-                sendError(0, null);
+                sendError(0, "not all packets recived");
             } else if (blockNumber == expectedPackets) {
                 boolean filecreated = uplode();
                 if (filecreated) {
