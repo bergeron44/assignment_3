@@ -7,7 +7,7 @@ public class TftpServer {
 
     public static void main(String[] args) {
         Server.threadPerClient(
-            80,
+            69,
             () -> new TftpProtocol(),
             () -> new TftpEncoderDecoder(),
             new ConnectionsImpl<>()

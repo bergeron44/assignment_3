@@ -12,4 +12,16 @@
         <maven.compiler.target>1.8</maven.compiler.target>
     </properties>
     <name>client</name>
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.3.0</version>
+                <configuration>
+                    <mainClass>bgu.spl.net.impl.tftp</mainClass> <!-- Replace with your actual main class -->
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
 </project>
