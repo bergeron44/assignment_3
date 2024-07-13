@@ -6,76 +6,67 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class ConnectionsImpl<T> implements Connections<T> {
 
-  ConcurrentHashMap<Integer, ConnectionHandler<T>> connectionMap;
-  ConcurrentHashMap<String, Integer> connectionsNameMap;
+  ConcurrentHashMap<Integer, BlockingConnectionHandler<T>> map;
+  ConcurrentHashMap<String, Integer> loggedInList;
 
   public ReentrantReadWriteLock lock;
 
   public ConnectionsImpl() {
-    this.connectionMap = new ConcurrentHashMap<>();
-    this.connectionsNameMap = new ConcurrentHashMap<>();
+    map = new ConcurrentHashMap<>();
+    loggedInList = new ConcurrentHashMap<>();
+
     lock = new ReentrantReadWriteLock();
   }
 
   @Override
-  public void connect(int connectionId, ConnectionHandler<T> handler) {
-    if (connectionMap.get(connectionId) != null)
-      return;
-    connectionMap.put(connectionId, handler);
+  public void connect(int connectionId, BlockingConnectionHandler<T> handler) {
+    if (map.get(connectionId) != null) return;
+    map.put(connectionId, handler);
   }
 
-  public void login(String userName, int connectionId) {
-    if (connectionMap.get(connectionId) != null)
-      return;
-    synchronized (connectionsNameMap) {
-      connectionsNameMap.put(userName, connectionId);
-    }
-  }
-
-  public void logout(String userName) {
-    if (connectionsNameMap.get(userName) != null)
-      return;
-    synchronized (connectionsNameMap) {
-      connectionsNameMap.remove(userName);
-    }
-  }
-
-  //
   @Override
   public boolean send(int connectionId, T msg) {
-    if (connectionMap.get(connectionId) == null)
-      return false;
-    connectionMap.get(connectionId).send(msg);
+    if (map.get(connectionId) == null) return false;
+    map.get(connectionId).send(msg);
     return true;
-  }
-
-  public boolean isExist(String userName) {
-    synchronized (connectionsNameMap) {
-      if (connectionsNameMap.get(userName) == null)
-        return false;
-
-      return true;
-    }
   }
 
   @Override
   public void disconnect(int connectionId) {
-    synchronized (connectionsNameMap) {
-      connectionMap.remove(connectionId);
-    }
-    System.out.println("Connection closed for connectionId: " + connectionId);
+    if (map.get(connectionId) != null) map.remove(connectionId);
   }
 
-  public boolean sendAll(int connectionId, T msg) {
-    synchronized (connectionsNameMap) {
-      Iterator<Integer> it = connectionsNameMap.values().iterator();
-      while (it.hasNext()) {
-        int conId = it.next();
+  public Integer checkIfLoggedin(String userName) {
+    synchronized (loggedInList) {
+      return loggedInList.get(userName);
+    }
+  }
+
+  public void logIn(String userName, int connectionId) {
+    synchronized (loggedInList) {
+      loggedInList.put(userName, connectionId);
+    }
+  }
+
+  public void logOut(String userName) {
+    synchronized (loggedInList) {
+      loggedInList.remove(userName);
+    }
+  }
+
+  public BlockingConnectionHandler<T> getConnectionHandler(int connectionId) {
+    return map.get(connectionId);
+  }
+
+  public void bCast(int connectionId, T msg) {
+    synchronized (loggedInList) {
+      Iterator<Integer> connectionsIt = loggedInList.values().iterator();
+      while (connectionsIt.hasNext()) {
+        int conId = connectionsIt.next();
         if (conId != connectionId) {
-          connectionMap.get(conId).send(msg);
+          map.get(conId).send(msg);
         }
       }
     }
-    return true;
   }
 }

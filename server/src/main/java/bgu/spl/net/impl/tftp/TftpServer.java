@@ -5,12 +5,19 @@ import bgu.spl.net.srv.Server;
 
 public class TftpServer {
 
-    public static void main(String[] args) {
-        Server.threadPerClient(
-            69,
-            () -> new TftpProtocol(),
-            () -> new TftpEncoderDecoder(),
-            new ConnectionsImpl<>()
-        ).serve();
-    }
+  public static void main(String[] args) {
+    // you can use any server you like baby...
+    if (args.length == 0) {
+      System.out.println("No arguments provided. setting port to 8080");
+      args=new String[]{"8080"};
+  }
+    Server
+      .threadPerClient(
+        Integer.valueOf(args[0]), //port
+        () -> new TftpProtocol(), //protocol factory
+        () -> new TftpEncoderDecoder(), //message encoder decoder factory
+        new ConnectionsImpl<byte[]>()
+      )
+      .serve();
+  }
 }

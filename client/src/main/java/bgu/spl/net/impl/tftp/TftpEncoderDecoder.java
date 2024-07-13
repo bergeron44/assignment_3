@@ -1,11 +1,12 @@
 package bgu.spl.net.impl.tftp;
 
-import bgu.spl.net.api.MessageEncoderDecoder;
 import java.util.Arrays;
+
+import bgu.spl.net.api.MessageEncoderDecoder;
 
 public class TftpEncoderDecoder implements MessageEncoderDecoder<byte[]> {
 
-  private byte[] bytes = new byte[1 << 10]; //start with 1k
+  private byte[] bytes = new byte[1 << 10]; // start with 1k
   private int len = 0;
   private short opCode;
 
@@ -16,21 +17,21 @@ public class TftpEncoderDecoder implements MessageEncoderDecoder<byte[]> {
       bytes[len] = nextByte;
       len++;
       if (len == 2) { // Save the opcode as short:
-        opCode =
-          (short) (((short) bytes[0] & 0xff) << 8 | (short) (bytes[1] & 0xff));
+        opCode = (short) (((short) bytes[0] & 0xff) << 8 | (short) (bytes[1] & 0xff));
         if (opCode == 6 || opCode == 10) {
           bytesToReturn = Arrays.copyOfRange(bytes, 0, len);
           bytes = new byte[1 << 10];
           len = 0;
           return bytesToReturn;
         }
+        System.out.println("opcode: " + opCode);
       }
+
     } else { // finnished reading opcode
-      if (
-        opCode == 1 || //Read request
-        opCode == 2 || //Write request
-        opCode == 7 || //Login request
-        opCode == 8 //Delete file request
+      if (opCode == 1 || // Read request
+          opCode == 2 || // Write request
+          opCode == 7 || // Login request
+          opCode == 8 // Delete file request
       ) {
         if (nextByte == 0) {
           bytesToReturn = Arrays.copyOfRange(bytes, 0, len);
@@ -41,7 +42,7 @@ public class TftpEncoderDecoder implements MessageEncoderDecoder<byte[]> {
         bytes[len] = nextByte;
         len++;
       }
-      if (opCode == 4) {
+      if (opCode == 4) {// Ack
         bytes[len] = nextByte;
         len++;
         if (len == 4) {
@@ -56,9 +57,7 @@ public class TftpEncoderDecoder implements MessageEncoderDecoder<byte[]> {
         len++;
 
         if (len >= 6) {
-          short packetSize = (short) (
-            ((short) bytes[2]) << 8 | (short) (bytes[3] & 0xff)
-          );
+          short packetSize = (short) (((short) bytes[2]) << 8 | (short) (bytes[3] & 0xff));
           if (len == 6 + packetSize) {
             bytesToReturn = Arrays.copyOfRange(bytes, 0, len);
             bytes = new byte[1 << 10];
@@ -77,7 +76,7 @@ public class TftpEncoderDecoder implements MessageEncoderDecoder<byte[]> {
         bytes[len] = nextByte;
         len++;
       }
-      if (opCode == 5) {
+      if (opCode == 5) { // Error
         if (len < 4) {
           bytes[len] = nextByte;
           len++;
@@ -91,6 +90,7 @@ public class TftpEncoderDecoder implements MessageEncoderDecoder<byte[]> {
           bytes[len] = nextByte;
           len++;
         }
+
       }
     }
 

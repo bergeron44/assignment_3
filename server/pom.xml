@@ -12,21 +12,12 @@
         <maven.compiler.target>1.8</maven.compiler.target>
     </properties>
     <name>server</name>
-
-    <dependencies>
-        <dependency>
-            <groupId>org.scala-lang</groupId>
-            <artifactId>scala-library</artifactId>
-            <version>2.13.0</version>
-        </dependency>
-    </dependencies>
-
     <build>
         <plugins>
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>exec-maven-plugin</artifactId>
-                <version>3.0.0</version>
+                <version>3.3.0</version>
                 <configuration>
                     <mainClass>bgu.spl.net.impl.tftp.TftpServer</mainClass>
                 </configuration>

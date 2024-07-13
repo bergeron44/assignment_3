@@ -19,7 +19,7 @@
                 <artifactId>exec-maven-plugin</artifactId>
                 <version>3.3.0</version>
                 <configuration>
-                    <mainClass>bgu.spl.net.impl.tftp</mainClass> <!-- Replace with your actual main class -->
+                    <mainClass>bgu.spl.net.impl.tftp.TftpClient</mainClass> <!-- Update this with your fully qualified main class -->
                 </configuration>
             </plugin>
         </plugins>

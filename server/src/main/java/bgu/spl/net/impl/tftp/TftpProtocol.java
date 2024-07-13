@@ -1,428 +1,422 @@
 package bgu.spl.net.impl.tftp;
 
-import java.io.ByteArrayOutputStream;
+import bgu.spl.net.api.BidiMessagingProtocol;
+import bgu.spl.net.srv.BlockingConnectionHandler;
+import bgu.spl.net.srv.ConnectionsImpl;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.LinkedTransferQueue;
-
-import bgu.spl.net.api.BidiMessagingProtocol;
-import bgu.spl.net.srv.Connections;
-import bgu.spl.net.srv.ConnectionsImpl;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
-    private String filesPath = System.getProperty("user.dir") + "/" + "Files";
-    private int connectionId;
-    private ConnectionsImpl<byte[]> connections;
-    private boolean shouldTerminate = false;
-    private LinkedTransferQueue<byte[]> data = new LinkedTransferQueue<>();
-    private String fileName = "";
-    private int expectedPackets;
-    private String connectionName;
-    private boolean login = false;
 
-    @Override
-    public void start(int connectionId, Connections<byte[]> connections) {
-        this.connectionId = connectionId;
-        this.connections = (ConnectionsImpl) connections;
+  String filesPath = System.getProperty("user.dir") + "/" + "Files";
+  String connectionName = "None";
+  private int connectionId;
+  private ConnectionsImpl<byte[]> connections;
+  boolean shouldTerminate = false;
+  boolean loggedIn;
+  byte[] errorCode = { 0, 5 };
+  String recentFileName = "";
+  ByteBuffer data;
+  short readCounter = 1;
+  short writeCounter = 1;
+  ConcurrentLinkedQueue<byte[]> readQueue;
+  FileOutputStream fos;
+
+  @Override
+  public void start(
+    int connectionIdVal,
+    ConnectionsImpl<byte[]> connectionsVal
+  ) {
+    this.connectionId = connectionIdVal;
+    this.connections = connectionsVal;
+    loggedIn = false;
+
+    readQueue = new ConcurrentLinkedQueue<>();
+  }
+
+  @Override
+  public void process(byte[] message) {
+    short opCode = (short) (
+      ((short) message[0] & 0xff) << 8 | (short) (message[1] & 0xff)
+    );
+    if (opCode == 1) { // RRQ client wants to read a file
+      if (!loggedIn) {
+        sendError((short) 6, "User isn't logged in");
+        return;
+      }
+      String fileName = new String(message, 2, message.length - 2);
+      connections.lock.readLock().lock();
+      String filePath = filesPath + File.separator + fileName;
+      File file = new File(filePath);
+      if (!file.exists()) {
+        connections.lock.readLock().unlock();
+        sendError((short) 1, "File not found");
+      } else {
+        try {
+          FileInputStream fis = new FileInputStream(filePath);
+          FileChannel channel = fis.getChannel();
+          ByteBuffer byteBuffer = ByteBuffer.allocate(512);
+
+          // Read the file in chunks
+          int bytesRead;
+          while ((bytesRead = channel.read(byteBuffer)) != -1) {
+            // Rewind the buffer before reading
+            byteBuffer.rewind();
+
+            // Read bytes from the buffer
+            byte[] chunk = new byte[bytesRead];
+            byteBuffer.get(chunk);
+            // Calculating the BlockNumber to bytes
+            byte[] blockNum = new byte[] {
+              ((byte) (readCounter >> 8)),
+              ((byte) (readCounter & 0xff)),
+            };
+            // Calculating the packetSize to bytes
+            byte[] packetSize = new byte[] {
+              ((byte) (bytesRead >> 8)),
+              (byte) (bytesRead & 0xff),
+            };
+            //creating the start of the DATA Packet
+            byte[] start = {
+              0,
+              3,
+              packetSize[0],
+              packetSize[1],
+              blockNum[0],
+              blockNum[1],
+            };
+            //increasing the block counter
+            readCounter++;
+            // Process the chunk as needed (e.g., print or save to another file)
+            readQueue.add(concatenateArrays(start, chunk));
+            // Clear the buffer for the next iteration
+            byteBuffer.clear();
+          }
+          //reseting the readCounter for comparing blocks
+          readCounter = 1;
+          // Close the FileInputStream
+          fis.close();
+        } catch (IOException e) {
+          e.printStackTrace();
+          //Error reading file
+          sendError((short) 0, "Problem reading the file");
+          return;
+        }
+        if(readQueue.isEmpty()){
+          byte[] start = {0, 3, 0, 0, 0, 1};
+          readQueue.add(start);
+        }
+        // send the client first package
+        connections.send(connectionId, readQueue.remove());
+      }
     }
 
-    @Override
-    public void process(byte[] message) {
-        int opcode = TftpUtils.extractShort(message, 0);
-        if (opcode != 7 && !login) {
-            sendError(6, "User isn't logged in");
-            return;
-        }
-        switch (opcode) {
-            case 1:
-                handleRrq(message);
-                break;
-            case 2:
-                handleWrq(message);
-                break;
-            case 3:
-                handleData(message);
-                break;
-            case 4:
-                handleAck(message);
-                break;
-            case 5:
-                handleError(message);
-                break;
-            case 6:
-                handleDirq();
-                break;
-            case 7:
-                handleLogrq(message);
-                break;
-            case 8:
-                handleDelrq(message);
-                break;
-            case 10:
-                handleDisc();
-                break;
-            default:
-                sendError(4, "Illegal TFTP operation");
-        }
-    }
-
-    @Override
-    public boolean shouldTerminate() {
-        return shouldTerminate;
-    }
-
-    // Handler implementations
-
-    // login
-    private void handleLogrq(byte[] message) {
-        String username = TftpUtils.extractString(message, 2);
-        if (connections.isExist(username) || login) {
-            sendError(7, "User already logged in");
-        } else {
-            connections.login(username, connectionId);
-            login = true;
-            connectionName = username;
-            sendAck(0);
-        }
-    }
-
-    private void handleDelrq(byte[] message) {
-        String filename = TftpUtils.extractString(message, 2);
-        String filePath = filesPath + File.separator + filename;
-        connections.lock.writeLock().lock();
-        File file = new File(filePath, filename);
-        if (!file.exists()) {// file doesnot exists
-            sendError(1, "file not found");
-            connections.lock.writeLock().unlock();
-            return;
-        }
-        boolean sucsesfuly = file.delete();
+    if (opCode == 2) { // WRQ request client wants to upload a file
+      if (!loggedIn) {
+        sendError((short) 6, "User isn't logged in");
+        return;
+      }
+      String fileName = new String(message, 2, message.length - 2);
+      connections.lock.writeLock().lock();
+      File file = new File(filesPath, fileName);
+      if (file.exists()) {
         connections.lock.writeLock().unlock();
-        if (!sucsesfuly)
-        sendError(2, "delte didnt secceded");
-        else
-            sendBcast(filename, (short) 0);
-    }
-
-    private void handleRrq(byte[] message) {
-        String filename = TftpUtils.extractString(message, 2);
-        String filePath = filesPath + File.separator + filename;
-        connections.lock.readLock().lock();
-        File file = new File(filePath, filename);
-        if (!file.exists()) {// file doesnot exists
-            connections.lock.readLock().unlock();
-            sendError(1, "file not found");
-            return;
-        }
+        sendError((short) (5), "File is already Exsists");
+      } else {
         try {
-            FileInputStream fis = new FileInputStream(file);
-            FileChannel channel = fis.getChannel();
-            ByteBuffer byteBuffer = ByteBuffer.allocate(510);
-            int bytesRead;
-            while ((bytesRead = channel.read(byteBuffer)) > 0) {
-                byteBuffer.flip();
-                byte[] chank = new byte[bytesRead];
-                byteBuffer.get(chank);
-                byte[] blockNum = new byte[] {
-                        ((byte) ((short) data.size() >> 8)),
-                        ((byte) ((short) data.size() & 0xff)),
-                };
-                byte[] packetSize = new byte[] {
-                        ((byte) (bytesRead >> 8)),
-                        (byte) (bytesRead & 0xff),
-                };
-                data.put(TftpUtils.concatenateArrays(
-                        new byte[] { 0, 3, packetSize[0], packetSize[1], blockNum[0], blockNum[1] },
-                        chank));
-                byteBuffer.clear();
-            }
-            fis.close();
-            connections.lock.readLock().unlock();
-            // All the packet are ready for send
+          recentFileName = fileName;
+          // Create the file
+          boolean created = file.createNewFile();
 
-        } catch (IOException e) {
-            e.printStackTrace();
-            connections.lock.readLock().unlock();
-            // Error reading file
-            sendError(2, "Problem reading the file");
-            return;
-        }
-        if (data.isEmpty()) {
-            byte[] start = { 0, 3, 0, 0, 0, 1 };
-            data.add(start);
-        }
-        sendAck(data.size());
-    }
-
-    private void handleWrq(byte[] message) {
-        String filename = TftpUtils.extractString(message, 2);
-        String filePath = filesPath + File.separator + filename;
-        connections.lock.writeLock().lock();
-        File file = new File(filePath, filename);
-        if (file.exists()) {// file  exists
+          if (created) {
+            System.out.println("File created successfully.");
+          } else {
             connections.lock.writeLock().unlock();
-            sendError(5, "file found");
+            sendError((short) 0, "problems with creating the file");
             return;
+          }
+        } catch (IOException e) {
+          connections.lock.writeLock().unlock();
+          sendError((short) 0, "problems with creating the file");
+          return;
         }
-        try{
-            if(file.createNewFile())
-            {
-                fileName = filename;
-                sendAck((short) 0);
-            }  
-            else
-            {
-                sendError(2, "access vaioltion");
-            }    
-        }
-       catch(IOException E){
-        sendError(2, "access vaioltion");
 
-       }
-       finally{
+        byte[] ack = { 0, 4, 0, 0 };
+        try {
+          fos = new FileOutputStream(file);
+        } catch (IOException e) {}
+
+        connections.send(connectionId, ack);
+      }
+    }
+    if (opCode == 3) { // Reciving data from client
+      if (!loggedIn) {
+        sendError((short) 6, "User isn't logged in");
+        return;
+      }
+      short blockNum = (short) (
+        ((short) message[4] & 0xff) << 8 | (short) (message[5] & 0xff)
+      );
+      short blockLength = (short) (
+        ((short) message[2] & 0xff) << 8 | (short) (message[3] & 0xff)
+      );
+      if (blockNum != writeCounter) {
+        File file = new File(filesPath, recentFileName);
+        file.delete();
         connections.lock.writeLock().unlock();
-       }
-        
-    }
-
-    private void handleDirq() {
-        String directoryPath = filesPath;
-        List<String> fileNames = getFileNamesFromDirectory(directoryPath);
-
-        // Create DIRQ packet data
-        byte[] data = createDirqPacket(fileNames);
-
-        // Send the data back through connections
-        connections.send(connectionId, data);
-    }
-
-    private List<String> getFileNamesFromDirectory(String directoryPath) {
-        List<String> fileNames = new ArrayList<>();
-        connections.lock.readLock().lock();
-        File directory = new File(directoryPath);
-        File[] files = directory.listFiles();
-
-        if (files != null) {
-            for (File file : files) {
-                if (file.isFile()) {
-                    fileNames.add(file.getName());
-                }
-            }
-            connections.lock.readLock().unlock();
-        } else {
-            connections.lock.readLock().unlock();
-            System.err.println("Directory not found or is empty: " + directoryPath);
-        }
-
-        return fileNames;
-    }
-
-    private byte[] createDirqPacket(List<String> fileNames) {
-        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-
-        try {
-            for (String fileName : fileNames) {
-                outputStream.write(fileName.getBytes("UTF-8"));
-                outputStream.write(0); // zero byte after each file name
-            }
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-
-        return outputStream.toByteArray();
-    }
-
-    private void handleData(byte[] message) {
-        try {
-
-            ByteBuffer buffer = ByteBuffer.wrap(message);
-            short opcode = buffer.getShort(); // Extracting opcode (first 2 bytes)
-            short packetSize = buffer.getShort(); // Extracting packet size (next 2 bytes)
-            short blockNumber = buffer.getShort(); // Extracting block number (next 2 bytes)
-            byte[] allData = new byte[packetSize];
-            buffer.get(allData); // Extracting data section
-            System.out.println("Received DATA packet for block number: " + blockNumber);
-            data.add(allData);
-            if ((packetSize < 512) && (blockNumber != expectedPackets)) {
-                System.out.println("not all expected packets received");
-                sendError(0, "not all packets recived");
-            } else if (blockNumber == expectedPackets) {
-                boolean filecreated = uplode();
-                if (filecreated) {
-                    System.out.println("the file create sucsesfuly");
-                    sendBcast(fileName, (short) 1);
-                } else
-                    System.out.println("fail to create file");
-            }
-        } catch (BufferUnderflowException e) {
-            System.err.println("Failed to parse DATA message: " + e.getMessage());
-        }
-    }
-
-    public void handleAck(byte[] message) {
-        try {
-            ByteBuffer buffer = ByteBuffer.wrap(message);
-            short opcode = buffer.getShort();
-            short blockNumber = buffer.getShort();
-
-            if (opcode == 4) {
-                System.out.println("Received ACK for block number: " + blockNumber);
-
-                if (blockNumber == 0) {
-                    System.out.println("ACK for control packet (block number 0)");
-                    if (!data.isEmpty())
-                        sendData();
-                } else {
-                    // ACK for DATA packet
-                    System.out.println("ACK for DATA packet, preparing next block");
-                    expectedPackets = blockNumber;
-                }
-            } else {
-                System.err.println("Unexpected opcode received: " + opcode);
-            }
-
-        } catch (BufferUnderflowException e) {
-            System.err.println("Failed to parse ACK message: " + e.getMessage());
-        }
-    }
-
-    private void sendBcast(String filename, short deleteOrAdd) {
-        // This handler is usually server-initiated, so implementation might vary based
-        // on your server logic
-        byte[] bCastStart = { 0, 9, (byte) (deleteOrAdd >> 8),
-                (byte) (deleteOrAdd & 0xff), };
-        String fileNameWithNullByte = filename + "\0";
-        connections.sendAll(
-                connectionId,
-                TftpUtils.concatenateArrays(bCastStart, fileNameWithNullByte.getBytes()));
-    }
-
-    private void handleError(byte[] message) {
-        int errorCode = TftpUtils.extractShort(message, 2);
-        String errorMessage = TftpUtils.extractString(message, 4);
-        System.err.println("Error received from client " + connectionId + ": " + errorCode + " - " + errorMessage);
-        data.clear();
-    }
-
-    // logout
-    private void handleDisc() {
-        connections.logout(connectionName);
-        sendAck(0);
-        connections.disconnect(connectionId);
-        shouldTerminate = true;
-    }
-
-    // Utility methods
-
-    private void sendAck(int blockNumber) {
-        byte[] ackPacket = TftpUtils.createAckPacket((short) blockNumber);
-        connections.send(connectionId, ackPacket);
-    }
-
-    private void sendError(int errorCode, String errorMessage) {
-        byte[] errorPacket = TftpUtils.createErrorPacket((short) errorCode, errorMessage);
-        connections.send(connectionId, errorPacket);
-    }
-
-    private void sendData() {
-        if (data.isEmpty()) {
-            sendError(0, "There is no Data to send");
-        } else {
-            connections.send(connectionId, data.poll());
-        }
-    }
-
-    public boolean uplode() {
-        String filePath = filesPath + File.separator + fileName;
-        connections.lock.writeLock().lock();
-        File file = new File(filePath, fileName);
-        if (!file.exists()) {// file does not exists
+        sendError((short) 0, "Got the wrong block");
+      } else {
+        if (blockLength > 0) {
+          byte[] data = Arrays.copyOfRange(message, 6, message.length);
+          try {
+            fos.write(data);
+          } catch (IOException e) {
+            File file = new File(filesPath, recentFileName);
+            file.delete();
             connections.lock.writeLock().unlock();
-            return false;
+            sendError((short) 0, "problem with writing to the file");
+          }
         }
-        LinkedTransferQueue<byte[]> backup = new LinkedTransferQueue<>();
-        try {
-            FileOutputStream fos = new FileOutputStream(filePath);
-            while (!data.isEmpty()) {
-                byte[] packet = data.poll();
-                backup.put(packet);
-                fos.write(packet);
-            }
-            connections.lock.writeLock().unlock();
-        } catch (IOException e) {
-            file=new File(filePath, fileName);
-            file.delete(); 
-            while (!data.isEmpty()) {
-                backup.put(data.poll());
-            }
-            while (!backup.isEmpty()) {
-                data.put(data.poll());
-            }
-            connections.lock.writeLock().unlock();
-            return false;
+
+        byte[] ack = { 0, 4, message[4], message[5] };
+        writeCounter++;
+        connections.send(connectionId, ack);
+        if (blockLength < 512) {
+          writeCounter = 1;
+          byte[] bCASTStart = { 0, 9, 1 };
+          String fileNameWithNullByte = recentFileName + "\0";
+          connections.bCast(
+            connectionId,
+            concatenateArrays(bCASTStart, fileNameWithNullByte.getBytes())
+          );
+          connections.lock.writeLock().unlock();
         }
-        return true;
+      }
     }
+    if (opCode == 4) { // Ack from Client
+      if (!loggedIn) {
+        sendError((short) 6, "User isn't logged in");
+        return;
+      }
+      short blockNum = (short) (
+        ((short) message[2] & 0x00ff) << 8 | (short) (message[3] & 0x00ff)
+      );
+      if (blockNum != readCounter) {
+        readQueue.clear();
+        readCounter = 1;
+        sendError((short) (0), "Got the wrong block");
+        connections.lock.readLock().unlock();
+        return;
+      }
 
-}
+      if (readQueue.isEmpty()) {
+        readCounter = 1;
+        connections.lock.readLock().unlock();
+        return;
+      }
+      connections.send(connectionId, readQueue.remove());
+      readCounter++;
+    }
+    if (opCode == 5) {
+      if (!loggedIn) {
+        sendError((short) 6, "User isn't logged in");
+        return;
+      }
+      System.out.println(message.length);
+      String errorMsg = new String(message, 4, message.length - 4);
+      short errorCode = (short) (
+        ((short) message[2] & 0xff) << 8 | (short) (message[3] & 0xff)
+      );
+      System.err.println("Error " + errorCode + ": " + errorMsg);
+      readQueue.clear();
+      readCounter = 1;
+    }
+    if (opCode == 6) {
+      if (!loggedIn) {
+        sendError((short) 6, "User isn't logged in");
+        return;
+      }
+      connections.lock.readLock().lock();
+      List<String> fileNamesList = getFileNames();
+      StringBuilder sb = new StringBuilder();
+      for (String fileName : fileNamesList) {
+        sb.append(fileName).append("\0"); // Use null byte as separator
+      }
 
-// Utility class for TFTP operations
-class TftpUtils {
+      // Convert the concatenated string to a byte array
+      byte[] byteArray = sb.toString().getBytes();
 
-    public static byte[] createErrorPacket(short errorCode, String errorMassage) {
-        byte[] opCodeByteArray = new byte[] {
-                (byte) (5 >> 8),
-                (byte) (5 & 0xff),
+      List<byte[]> splitIntoChunks = splitByteArray(byteArray);
+
+      for (int i = 0; i < splitIntoChunks.size(); i++) {
+        short packetSizeShort = (short) splitIntoChunks.get(i).length;
+        byte[] packetSizeBytes = new byte[] {
+          (byte) (packetSizeShort >> 8),
+          (byte) (packetSizeShort & 0xff),
         };
-        byte[] errorCodeArray = new byte[] {
-                (byte) (errorCode >> 8),
-                (byte) (errorCode & 0xff),
+        byte[] indexByte = new byte[] {
+          (byte) ((short) i + 1 >> 8),
+          (byte) (i + 1 & 0xff),
         };
-        byte[] errorStart = TftpUtils.concatenateArrays(errorCodeArray, opCodeByteArray);
-        byte[] errorMsg = new String(errorMassage + new String(new byte[] { 0 }))
-                .getBytes();
-        return concatenateArrays(errorStart, errorMsg);
+        byte[] start = {
+          0,
+          3,
+          packetSizeBytes[0],
+          packetSizeBytes[1],
+          indexByte[0],
+          indexByte[1],
+        };
+        byte[] msg = concatenateArrays(start, splitIntoChunks.get(i));
+        readQueue.add(msg);
+      }
+      connections.send(connectionId, readQueue.remove());
     }
-
-    public static String extractString(byte[] message, int startIndex) {
-        int endIndex = startIndex;
-        while (endIndex < message.length && message[endIndex] != 0) {
-            endIndex++;
+    if (opCode == 7) { // client wants to logIn
+      if (loggedIn) {
+        sendError((short) 7, "User is logged in already");
+        return;
+      } else {
+        String userName = new String(message, 2, message.length - 2); // getting the string from the message
+        if (connections.checkIfLoggedin(userName) != null) {
+          sendError((short) 0, "The username u gave is already loggedIn");
+          return;
+        } else {
+          loggedIn = true;
+          connections.logIn(userName, connectionId);
+          connectionName = userName;
+          byte[] ack = { 0, 4, 0, 0 };
+          connections.send(connectionId, ack);
         }
-        return new String(message, startIndex, endIndex - startIndex, StandardCharsets.UTF_8);
+      }
+    }
+    if (opCode == 8) {
+      if (!loggedIn) {
+        sendError((short) 6, "User isn't logged in");
+        return;
+      }
+      connections.lock.writeLock().lock();
+      String fileName = new String(message, 2, message.length - 2);
+      File file = new File(filesPath, fileName);
+      if (!file.exists()) {
+        connections.lock.writeLock().unlock();
+        sendError((short) 1, "File not found");
+        return;
+      } else {
+        if (!file.delete()) {
+          connections.lock.writeLock().unlock();
+          sendError((short) (0), "Error deleting the file");
+          return;
+        }
+        byte[] bCastStart = { 0, 9, 0 };
+        String fileNameWithNullByte = fileName + "\0";
+        byte[] ack = { 0, 4, 0, 0 };
+        connections.send(connectionId, ack);
+        connections.bCast(
+          connectionId,
+          concatenateArrays(bCastStart, fileNameWithNullByte.getBytes())
+        );
+        connections.lock.writeLock().unlock();
+      }
+    }
+    if (opCode == 10) {
+      if (!loggedIn) {
+        sendError((short) (6), "User isn't logged in");
+        return;
+      }
+      loggedIn = false;
+      connections.logOut(connectionName);
+      connectionName = "None";
+      byte[] ack = { 0, 4, 0, 0 };
+      connections.send(connectionId, ack);
+      connections.disconnect(connectionId);
+      shouldTerminate = true;
+    }
+  }
+
+  @Override
+  public boolean shouldTerminate() {
+    return shouldTerminate;
+  }
+
+  public static byte[] concatenateArrays(byte[] array1, byte[] array2) {
+    // Calculate the size of the concatenated array
+    int totalLength = array1.length + array2.length;
+
+    // Create a new byte array to hold the concatenated data
+    byte[] result = new byte[totalLength];
+
+    // Copy the contents of the first array into the result array
+    System.arraycopy(array1, 0, result, 0, array1.length);
+
+    // Copy the contents of the second array into the result array
+    System.arraycopy(array2, 0, result, array1.length, array2.length);
+
+    return result;
+  }
+
+  // functions that sends Errors to users
+  public void sendError(short opCode, String message) {
+    byte[] opCodeByteArray = new byte[] {
+      (byte) (opCode >> 8),
+      (byte) (opCode & 0xff),
+    };
+    byte[] errorStart = concatenateArrays(errorCode, opCodeByteArray);
+    byte[] errorMsg = new String(message + new String(new byte[] { 0 }))
+      .getBytes();
+    connections.send(connectionId, concatenateArrays(errorStart, errorMsg));
+  }
+
+  public List<String> getFileNames() {
+    List<String> fileNamesList = new ArrayList<>();
+    File folder = new File(filesPath);
+
+    // Check if the folder exists and is a directory
+    if (folder.exists() && folder.isDirectory()) {
+      // Get all files in the folder
+      File[] files = folder.listFiles();
+      if (files != null) {
+        for (File file : files) {
+          // Add file names to the list
+          fileNamesList.add(file.getName());
+        }
+      }
+    } else {
+      System.out.println("Folder does not exist or is not a directory.");
+    }
+    if(fileNamesList.size() == 0){
+      fileNamesList.add("No files in the server");
+    }
+    return fileNamesList;
+  }
+
+  public static List<byte[]> splitByteArray(byte[] byteArray) {
+    int chunkSize = 512;
+    int numChunks = (byteArray.length + chunkSize - 1) / chunkSize;
+    List<byte[]> chunks = new ArrayList<>();
+
+    for (int i = 0; i < numChunks - 1; i++) {
+      int startIndex = i * chunkSize;
+      int endIndex = startIndex + chunkSize;
+      byte[] chunk = new byte[chunkSize];
+      System.arraycopy(byteArray, startIndex, chunk, 0, chunkSize);
+      chunks.add(chunk);
     }
 
-    public static short extractShort(byte[] message, int startIndex) {
-        int num = ((message[startIndex] & 0xff) << 8) | (message[startIndex + 1] & 0xff);
-        return (short) num;
-    }
+    // Last chunk
+    int lastChunkStart = (numChunks - 1) * chunkSize;
+    int lastChunkSize = byteArray.length - lastChunkStart;
+    byte[] lastChunk = new byte[lastChunkSize];
+    System.arraycopy(byteArray, lastChunkStart, lastChunk, 0, lastChunkSize);
+    chunks.add(lastChunk);
 
-    public static byte[] createAckPacket(short blockNumber) {
-        return new byte[] { (byte) ((short) 4 >> 8), (byte) ((short) 4), (byte) (blockNumber >> 8),
-                (byte) (blockNumber) };
-    }
-
-    public static byte[] concatenateArrays(byte[] array1, byte[] array2) {
-        // Calculate the size of the concatenated array
-        int totalLength = array1.length + array2.length;
-
-        // Create a new byte array to hold the concatenated data
-        byte[] result = new byte[totalLength];
-
-        // Copy the contents of the first array into the result array
-        System.arraycopy(array1, 0, result, 0, array1.length);
-
-        // Copy the contents of the second array into the result array
-        System.arraycopy(array2, 0, result, array1.length, array2.length);
-
-        return result;
-    }
+    return chunks;
+  }
 }
