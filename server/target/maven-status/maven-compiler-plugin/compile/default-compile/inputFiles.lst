@@ -1,10 +1,6 @@
 C:\Users\asaf8\github\assignment_3\server\src\main\java\bgu\spl\net\api\BidiMessagingProtocol.java
 C:\Users\asaf8\github\assignment_3\server\src\main\java\bgu\spl\net\api\MessageEncoderDecoder.java
 C:\Users\asaf8\github\assignment_3\server\src\main\java\bgu\spl\net\api\MessagingProtocol.java
-C:\Users\asaf8\github\assignment_3\server\src\main\java\bgu\spl\net\impl\rci\Command.java
-C:\Users\asaf8\github\assignment_3\server\src\main\java\bgu\spl\net\impl\rci\ObjectEncoderDecoder.java
-C:\Users\asaf8\github\assignment_3\server\src\main\java\bgu\spl\net\impl\rci\RCIClient.java
-C:\Users\asaf8\github\assignment_3\server\src\main\java\bgu\spl\net\impl\rci\RemoteCommandInvocationProtocol.java
 C:\Users\asaf8\github\assignment_3\server\src\main\java\bgu\spl\net\impl\tftp\TftpEncoderDecoder.java
 C:\Users\asaf8\github\assignment_3\server\src\main\java\bgu\spl\net\impl\tftp\TftpProtocol.java
 C:\Users\asaf8\github\assignment_3\server\src\main\java\bgu\spl\net\impl\tftp\TftpServer.java

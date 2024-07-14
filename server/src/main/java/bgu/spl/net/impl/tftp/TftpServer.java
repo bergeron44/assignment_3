@@ -8,8 +8,8 @@ public class TftpServer {
   public static void main(String[] args) {
     // you can use any server you like baby...
     if (args.length == 0) {
-      System.out.println("No arguments provided. setting port to 8080");
-      args=new String[]{"8080"};
+      System.out.println("No arguments provided. setting port to 7777");
+      args=new String[]{"7777"};
   }
     Server
       .threadPerClient(

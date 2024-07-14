@@ -21,7 +21,7 @@ public class TftpClient {
   //TODO: implement the main logic of the client, when using a thread per client the main logic goes here
   public static void main(String[] args) throws IOException {
     if (args.length == 0) {
-      args = new String[] { "localhost", "8080" };
+      args = new String[] { "127.0.0.1", "7777" };
     }
     if (args.length < 2) {
       System.out.println("you must supply two arguments: host, message");

@@ -1,8 +1,5 @@
 package bgu.spl.net.impl.tftp;
 
-import bgu.spl.net.api.BidiMessagingProtocol;
-import bgu.spl.net.srv.BlockingConnectionHandler;
-import bgu.spl.net.srv.ConnectionsImpl;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -13,6 +10,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
+
+import bgu.spl.net.api.BidiMessagingProtocol;
+import bgu.spl.net.srv.ConnectionsImpl;
 
 public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
 
@@ -52,6 +52,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
         sendError((short) 6, "User isn't logged in");
         return;
       }
+      System.out.println("RRQ request received");
       String fileName = new String(message, 2, message.length - 2);
       connections.lock.readLock().lock();
       String filePath = filesPath + File.separator + fileName;
@@ -124,6 +125,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
         sendError((short) 6, "User isn't logged in");
         return;
       }
+      System.out.println("WRQ request received");
       String fileName = new String(message, 2, message.length - 2);
       connections.lock.writeLock().lock();
       File file = new File(filesPath, fileName);
@@ -162,6 +164,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
         sendError((short) 6, "User isn't logged in");
         return;
       }
+      System.out.println("Data packet received");
       short blockNum = (short) (
         ((short) message[4] & 0xff) << 8 | (short) (message[5] & 0xff)
       );
@@ -206,6 +209,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
         sendError((short) 6, "User isn't logged in");
         return;
       }
+      System.out.println("Ack packet received");
       short blockNum = (short) (
         ((short) message[2] & 0x00ff) << 8 | (short) (message[3] & 0x00ff)
       );
@@ -225,11 +229,12 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
       connections.send(connectionId, readQueue.remove());
       readCounter++;
     }
-    if (opCode == 5) {
+    if (opCode == 5) {// Error packet from client
       if (!loggedIn) {
         sendError((short) 6, "User isn't logged in");
         return;
       }
+      System.out.println("Error packet received");
       System.out.println(message.length);
       String errorMsg = new String(message, 4, message.length - 4);
       short errorCode = (short) (
@@ -239,11 +244,12 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
       readQueue.clear();
       readCounter = 1;
     }
-    if (opCode == 6) {
+    if (opCode == 6) {// DIRQ request client wants to get the list of files
       if (!loggedIn) {
         sendError((short) 6, "User isn't logged in");
         return;
       }
+      System.out.println("DIRQ request received");
       connections.lock.readLock().lock();
       List<String> fileNamesList = getFileNames();
       StringBuilder sb = new StringBuilder();
@@ -284,6 +290,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
         sendError((short) 7, "User is logged in already");
         return;
       } else {
+        System.out.println("LOGRQ request received");
         String userName = new String(message, 2, message.length - 2); // getting the string from the message
         if (connections.checkIfLoggedin(userName) != null) {
           sendError((short) 0, "The username u gave is already loggedIn");
@@ -302,6 +309,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
         sendError((short) 6, "User isn't logged in");
         return;
       }
+      System.out.println("DELRQ request received");
       connections.lock.writeLock().lock();
       String fileName = new String(message, 2, message.length - 2);
       File file = new File(filesPath, fileName);
@@ -331,6 +339,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
         sendError((short) (6), "User isn't logged in");
         return;
       }
+      System.out.println("DISC request received");
       loggedIn = false;
       connections.logOut(connectionName);
       connectionName = "None";
