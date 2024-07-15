@@ -95,7 +95,7 @@ public class TftpClient {
   public static void handleAns(byte[] ans, ClientConnectionHandler clientC) {
     short opCode = (short) (((short) ans[0] & 0xff) << 8 | (short) (ans[1] & 0xff));
     switch (opCode) {
-      case 3:
+      case 3: // DATA
         short blockNum = (short) (((short) ans[4] & 0xff) << 8 | (short) (ans[5] & 0xff));
         short blockLength = (short) (((short) ans[2] & 0xff) << 8 | (short) (ans[3] & 0xff));
         if (blockNum != clientC.ansQueue.size() + 1) {
@@ -156,7 +156,7 @@ public class TftpClient {
         }
         break;
 
-      case 4:
+      case 4:// ACK
         if (clientC.recentRequestOpCode != 2 & clientC.recentRequestOpCode != 10) {
           System.out.println("< ACK  0");
           clientC.recentRequestOpCode = 0;
@@ -255,12 +255,12 @@ public class TftpClient {
           }
         }
         if (clientC.recentRequestOpCode == 10) {
+          System.out.println("< ACK 0");
           clientC.shouldTerminate = true;
           clientC.waitingForResponse = false;
-          System.out.println("< ACK 0");
         }
         break;
-      case 5:
+      case 5:// ERROR
         String errorMsg = new String(ans, 4, ans.length - 4);
         short errorCode = (short) (((short) ans[2] & 0xff) << 8 | (short) (ans[3] & 0xff));
         System.err.println("Error " + errorCode + ": " + errorMsg);
@@ -269,7 +269,7 @@ public class TftpClient {
         clientC.waitingForResponse = false;
         clientC.recentRequestOpCode = 0;
         break;
-      case 9:
+      case 9: // BCAST
         String deleteOrAdded = (ans[2] == (byte) 1) ? "add" : "del";
         String fileName = new String(ans, 3, ans.length - 3);
         System.out.println("BCAST: " + deleteOrAdded + " " + fileName);
