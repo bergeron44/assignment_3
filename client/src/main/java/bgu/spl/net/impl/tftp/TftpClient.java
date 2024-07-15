@@ -18,7 +18,6 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 
 public class TftpClient {
 
-  //TODO: implement the main logic of the client, when using a thread per client the main logic goes here
   public static void main(String[] args) throws IOException {
     if (args.length == 0) {
       args = new String[] { "127.0.0.1", "7777" };
@@ -28,26 +27,22 @@ public class TftpClient {
       System.exit(1);
     }
 
-    //BufferedReader and BufferedWriter automatically using UTF-8 encoding
+    // BufferedReader and BufferedWriter automatically using UTF-8 encoding
     try {
-      Socket sock = new Socket(args[0], Integer.valueOf(args[1]));
-      BufferedInputStream in = new BufferedInputStream(sock.getInputStream());
+      Socket clientSocket = new Socket(args[0], Integer.valueOf(args[1]));
+      BufferedInputStream inputStream = new BufferedInputStream(clientSocket.getInputStream());
 
-      BufferedOutputStream out = new BufferedOutputStream(
-        sock.getOutputStream()
-      );
+      BufferedOutputStream outputStream = new BufferedOutputStream(
+          clientSocket.getOutputStream());
       ClientConnectionHandler clientConnection = new ClientConnectionHandler(
-        in,
-        out
-      );
+          inputStream,
+          outputStream);
 
       Thread listenerThread = new Thread(() -> {
         System.out.println("start listening");
         int bytes;
         try {
-          while (
-            !clientConnection.shouldTerminate && (bytes = in.read()) >= 0
-          ) {
+          while (!clientConnection.shouldTerminate && (bytes = inputStream.read()) >= 0) {
             byte[] ans = clientConnection.encdec.decodeNextByte((byte) bytes);
             if (ans != null) {
               handleAns(ans, clientConnection);
@@ -62,14 +57,11 @@ public class TftpClient {
       Thread keyBoardThread = new Thread(() -> {
         System.out.println("keyBoard started");
         BufferedReader keyBoardInput = new BufferedReader(
-          new InputStreamReader(System.in)
-        );
+            new InputStreamReader(System.in));
         String message;
         try {
-          while (
-            !clientConnection.shouldTerminate &&
-            (message = keyBoardInput.readLine()) != null
-          ) {
+          while (!clientConnection.shouldTerminate &&
+              (message = keyBoardInput.readLine()) != null) {
             if (clientConnection.waitingForResponse) {
               System.out.println("waiting for response");
               continue;
@@ -94,221 +86,210 @@ public class TftpClient {
       keyBoardThread.start();
       listenerThread.join();
       System.out.println("Socket closing");
-      sock.close();
+      clientSocket.close();
     } catch (IOException | InterruptedException e) {
       e.printStackTrace();
     }
   }
 
   public static void handleAns(byte[] ans, ClientConnectionHandler clientC) {
-    short opCode = (short) (
-      ((short) ans[0] & 0xff) << 8 | (short) (ans[1] & 0xff)
-    );
-    if (opCode == 3) {
-      short blockNum = (short) (
-        ((short) ans[4] & 0xff) << 8 | (short) (ans[5] & 0xff)
-      );
-      short blockLength = (short) (
-        ((short) ans[2] & 0xff) << 8 | (short) (ans[3] & 0xff)
-      );
-      if (blockNum != clientC.ansQueue.size() + 1) {
-        byte[] error = sendError((short) 0, "got the wrong block");
+    short opCode = (short) (((short) ans[0] & 0xff) << 8 | (short) (ans[1] & 0xff));
+    switch (opCode) {
+      case 3:
+        short blockNum = (short) (((short) ans[4] & 0xff) << 8 | (short) (ans[5] & 0xff));
+        short blockLength = (short) (((short) ans[2] & 0xff) << 8 | (short) (ans[3] & 0xff));
+        if (blockNum != clientC.ansQueue.size() + 1) {
+          byte[] error = sendError((short) 0, "got the wrong block");
+          try {
+            clientC.out.write(error);
+            clientC.out.flush();
+          } catch (IOException e) {
+            e.printStackTrace();
+          }
+          clientC.ansQueue.clear();
+          clientC.waitingForResponse = false;
+          return;
+        }
+        if (ans.length > 6) {
+          clientC.ansQueue.add(Arrays.copyOfRange(ans, 6, ans.length));
+        }
+        if (blockLength < 512) {
+          if (clientC.recentRequestOpCode == 1) {
+            File newFile = new File(
+                System.getProperty("user.dir"),
+                clientC.workingFileName);
+            if (newFile.exists()) {
+              newFile.delete();
+            }
+            try {
+              newFile.createNewFile();
+              FileOutputStream fos = new FileOutputStream(newFile);
+              while (!clientC.ansQueue.isEmpty()) {
+                fos.write(clientC.ansQueue.remove());
+              }
+              clientC.recentRequestOpCode = 0;
+              clientC.waitingForResponse = false;
+              System.out.println("file has been written");
+              fos.close();
+            } catch (IOException e) {
+              e.printStackTrace();
+              clientC.ansQueue.clear();
+              clientC.recentRequestOpCode = 0;
+              clientC.waitingForResponse = false;
+            }
+          } else if (clientC.recentRequestOpCode == 6) {
+            List<String> fileNames = getAllFileNames(clientC.ansQueue);
+            for (String fileName : fileNames) {
+              System.out.println(fileName);
+            }
+            clientC.waitingForResponse = false;
+            clientC.recentRequestOpCode = 0;
+            clientC.ansQueue.clear();
+          }
+        }
+        byte[] ack = { 0, 4, ans[4], ans[5] };
         try {
-          clientC.out.write(error);
+          clientC.out.write((clientC.encdec.encode(ack)));
           clientC.out.flush();
         } catch (IOException e) {
           e.printStackTrace();
         }
-        clientC.ansQueue.clear();
-        clientC.waitingForResponse = false;
-        return;
-      }
-      if (ans.length > 6) {
-        clientC.ansQueue.add(Arrays.copyOfRange(ans, 6, ans.length));
-      }
-      if (blockLength < 512) {
-        if (clientC.recentRequestOpCode == 1) {
-          File newFile = new File(
-            System.getProperty("user.dir"),
-            clientC.workingFileName
-          );
-          if (newFile.exists()) {
-            newFile.delete();
-          }
-          try {
-            newFile.createNewFile();
-            FileOutputStream fos = new FileOutputStream(newFile);
-            while (!clientC.ansQueue.isEmpty()) {
-              fos.write(clientC.ansQueue.remove());
-            }
-            clientC.recentRequestOpCode = 0;
-            clientC.waitingForResponse = false;
-            System.out.println("file has been written");
-            fos.close();
-          } catch (IOException e) {
-            e.printStackTrace();
-            clientC.ansQueue.clear();
-            clientC.recentRequestOpCode = 0;
-            clientC.waitingForResponse = false;
-          }
-        } else if (clientC.recentRequestOpCode == 6) {
-          List<String> fileNames = getAllFileNames(clientC.ansQueue);
-          for (String fileName : fileNames) {
-            System.out.println(fileName);
-          }
-          clientC.waitingForResponse = false;
-          clientC.recentRequestOpCode = 0;
-          clientC.ansQueue.clear();
-        }
-      }
-      byte[] ack = { 0, 4, ans[4], ans[5] };
-      try {
-        clientC.out.write((clientC.encdec.encode(ack)));
-        clientC.out.flush();
-      } catch (IOException e) {
-        e.printStackTrace();
-      }
-    }
-    if (opCode == 4) {
-      if (
-        clientC.recentRequestOpCode != 2 & clientC.recentRequestOpCode != 10
-      ) {
-        System.out.println("< ACK  0");
-        clientC.recentRequestOpCode = 0;
-        clientC.waitingForResponse = false;
-        return;
-      }
-      if (clientC.recentRequestOpCode == 2) {
-        short blockNum = (short) (
-          ((short) ans[2] & 0xff) << 8 | (short) (ans[3] & 0xff)
-        );
-        System.out.println(blockNum);
-        if (clientC.writeCounter != blockNum) {
-          clientC.sendQueue.clear();
+        break;
+
+      case 4:
+        if (clientC.recentRequestOpCode != 2 & clientC.recentRequestOpCode != 10) {
+          System.out.println("< ACK  0");
           clientC.recentRequestOpCode = 0;
           clientC.waitingForResponse = false;
           return;
         }
-        if (blockNum == 0) {
-         
-          String filePath =
-            System.getProperty("user.dir") + "/" + clientC.workingFileName;
-          try {
-           
-            FileInputStream fis = new FileInputStream(filePath);
-            FileChannel channel = fis.getChannel();
-            ByteBuffer byteBuffer = ByteBuffer.allocate(512);
-
-            // Read the file in chunks
-            int bytesRead;
-            while ((bytesRead = channel.read(byteBuffer)) != -1) {
-              // Rewind the buffer before reading
-              byteBuffer.rewind();
-              //increasing the block counter
-              clientC.writeCounter++;
-              // Read bytes from the buffer
-              byte[] chunk = new byte[bytesRead];
-              byteBuffer.get(chunk);
-              // Calculating the BlockNumber to bytes
-              byte[] blockNumForSend = new byte[] {
-                ((byte) (clientC.writeCounter >> 8)),
-                ((byte) (clientC.writeCounter & 0xff)),
-              };
-              // Calculating the packetSize to bytes
-              byte[] packetSize = new byte[] {
-                ((byte) (bytesRead >> 8)),
-                (byte) (bytesRead & 0xff),
-              };
-              //creating the start of the DATA Packet
-              byte[] start = {
-                0,
-                3,
-                packetSize[0],
-                packetSize[1],
-                blockNumForSend[0],
-                blockNumForSend[1],
-              };
-
-              // Process the chunk as needed (e.g., print or save to another file)
-              clientC.sendQueue.add(concatenateArrays(start, chunk));
-              // Clear the buffer for the next iteration
-              byteBuffer.clear();
-            }
-            //reseting the readCounter for comparing blocks
-            clientC.writeCounter = 1;
-            // Close the FileInputStream
-            fis.close();
-            if(clientC.sendQueue.isEmpty()){
-              byte[] toSend = {0, 3, 0, 0, 0, 1};
-              clientC.sendQueue.add(toSend);
-            }
-            clientC.out.write(clientC.encdec.encode(clientC.sendQueue.poll()));
-            clientC.out.flush();
-          } catch (IOException e) {
-            sendError((short) 0, "error reading the file");
-            clientC.waitingForResponse = false;
-            clientC.workingFileName = "";
+        if (clientC.recentRequestOpCode == 2) {
+          short blockNum = (short) (((short) ans[2] & 0xff) << 8 | (short) (ans[3] & 0xff));
+          System.out.println(blockNum);
+          if (clientC.writeCounter != blockNum) {
+            clientC.sendQueue.clear();
             clientC.recentRequestOpCode = 0;
+            clientC.waitingForResponse = false;
+            return;
           }
-        } else {
-          if (!clientC.sendQueue.isEmpty()) {
+          if (blockNum == 0) {
+
+            String filePath = System.getProperty("user.dir") + "/" + clientC.workingFileName;
             try {
-              clientC.out.write(
-                clientC.encdec.encode(clientC.sendQueue.poll())
-              );
-              clientC.out.flush();
-              clientC.writeCounter++;
-            } catch (IOException e) {
-              System.out.println("Error writing the file");
-              sendError((short) 0, "Error writing the file");
-              clientC.sendQueue.clear();
-              clientC.recentRequestOpCode = 0;
-              clientC.waitingForResponse = false;
 
-              e.printStackTrace();
+              FileInputStream fis = new FileInputStream(filePath);
+              FileChannel channel = fis.getChannel();
+              ByteBuffer byteBuffer = ByteBuffer.allocate(512);
+
+              // Read the file inputStream chunks
+              int bytesRead;
+              while ((bytesRead = channel.read(byteBuffer)) != -1) {
+                // Rewind the buffer before reading
+                byteBuffer.rewind();
+                // increasing the block counter
+                clientC.writeCounter++;
+                // Read bytes from the buffer
+                byte[] chunk = new byte[bytesRead];
+                byteBuffer.get(chunk);
+                // Calculating the BlockNumber to bytes
+                byte[] blockNumForSend = new byte[] {
+                    ((byte) (clientC.writeCounter >> 8)),
+                    ((byte) (clientC.writeCounter & 0xff)),
+                };
+                // Calculating the packetSize to bytes
+                byte[] packetSize = new byte[] {
+                    ((byte) (bytesRead >> 8)),
+                    (byte) (bytesRead & 0xff),
+                };
+                // creating the start of the DATA Packet
+                byte[] start = {
+                    0,
+                    3,
+                    packetSize[0],
+                    packetSize[1],
+                    blockNumForSend[0],
+                    blockNumForSend[1],
+                };
+
+                // Process the chunk as needed (e.g., print or save to another file)
+                clientC.sendQueue.add(concatenateArrays(start, chunk));
+                // Clear the buffer for the next iteration
+                byteBuffer.clear();
+              }
+              // reseting the readCounter for comparing blocks
+              clientC.writeCounter = 1;
+              // Close the FileInputStream
+              fis.close();
+              if (clientC.sendQueue.isEmpty()) {
+                byte[] toSend = { 0, 3, 0, 0, 0, 1 };
+                clientC.sendQueue.add(toSend);
+              }
+              clientC.out.write(clientC.encdec.encode(clientC.sendQueue.poll()));
+              clientC.out.flush();
+            } catch (IOException e) {
+              sendError((short) 0, "error reading the file");
+              clientC.waitingForResponse = false;
+              clientC.workingFileName = "";
+              clientC.recentRequestOpCode = 0;
             }
-          }
-          else if (clientC.sendQueue.isEmpty()) {
-            clientC.waitingForResponse = false;
-            clientC.recentRequestOpCode = 0;
-            clientC.writeCounter =0;
-            System.out.println("file Sent");
+          } else {
+            if (!clientC.sendQueue.isEmpty()) {
+              try {
+                clientC.out.write(
+                    clientC.encdec.encode(clientC.sendQueue.poll()));
+                clientC.out.flush();
+                clientC.writeCounter++;
+              } catch (IOException e) {
+                System.out.println("Error writing the file");
+                sendError((short) 0, "Error writing the file");
+                clientC.sendQueue.clear();
+                clientC.recentRequestOpCode = 0;
+                clientC.waitingForResponse = false;
+
+                e.printStackTrace();
+              }
+            } else if (clientC.sendQueue.isEmpty()) {
+              clientC.waitingForResponse = false;
+              clientC.recentRequestOpCode = 0;
+              clientC.writeCounter = 0;
+              System.out.println("file Sent");
+            }
           }
         }
-      }
-      if (clientC.recentRequestOpCode == 10) {
-        clientC.shouldTerminate = true;
+        if (clientC.recentRequestOpCode == 10) {
+          clientC.shouldTerminate = true;
+          clientC.waitingForResponse = false;
+          System.out.println("< ACK 0");
+        }
+        break;
+      case 5:
+        String errorMsg = new String(ans, 4, ans.length - 4);
+        short errorCode = (short) (((short) ans[2] & 0xff) << 8 | (short) (ans[3] & 0xff));
+        System.err.println("Error " + errorCode + ": " + errorMsg);
+        clientC.ansQueue.clear();
+        clientC.sendQueue.clear();
         clientC.waitingForResponse = false;
-        System.out.println("< ACK 0");
-      }
-    }
-    if (opCode == 5) {
-      String errorMsg = new String(ans, 4, ans.length - 4);
-      short errorCode = (short) (
-        ((short) ans[2] & 0xff) << 8 | (short) (ans[3] & 0xff)
-      );
-      System.err.println("Error " + errorCode + ": " + errorMsg);
-      clientC.ansQueue.clear();
-      clientC.sendQueue.clear();
-      clientC.waitingForResponse = false;
-      clientC.recentRequestOpCode = 0;
-    }
-    if (opCode == 9) {
-      String deleteOrAdded = (ans[2] == (byte) 1) ? "add" : "del";
-      String fileName = new String(ans, 3, ans.length - 3);
-      System.out.println("BCAST: " + deleteOrAdded + " " + fileName);
+        clientC.recentRequestOpCode = 0;
+        break;
+      case 9:
+        String deleteOrAdded = (ans[2] == (byte) 1) ? "add" : "del";
+        String fileName = new String(ans, 3, ans.length - 3);
+        System.out.println("BCAST: " + deleteOrAdded + " " + fileName);
+        break;
+      default:
+        throw new AssertionError();
     }
   }
 
   public static byte[] sendError(short opCode, String message) {
     byte[] opCodeByteArray = new byte[] {
-      (byte) (opCode >> 8),
-      (byte) (opCode & 0xff),
+        (byte) (opCode >> 8),
+        (byte) (opCode & 0xff),
     };
     byte[] errorCode = { 0, 5 };
     byte[] errorStart = concatenateArrays(errorCode, opCodeByteArray);
     byte[] errorMsg = new String(message + new String(new byte[] { 0 }))
-      .getBytes();
+        .getBytes();
     return concatenateArrays(errorStart, errorMsg);
   }
 
@@ -329,8 +310,7 @@ public class TftpClient {
   }
 
   public static List<String> getAllFileNames(
-    ConcurrentLinkedQueue<byte[]> bytesQueue
-  ) {
+      ConcurrentLinkedQueue<byte[]> bytesQueue) {
     List<String> fileNames = new ArrayList<>();
 
     // Concatenate all byte arrays into one array
@@ -346,12 +326,11 @@ public class TftpClient {
     for (byte[] byteArray : bytesQueue) {
       if (byteArray != null) {
         System.arraycopy(
-          byteArray,
-          0,
-          combinedArray,
-          currentIndex,
-          byteArray.length
-        );
+            byteArray,
+            0,
+            combinedArray,
+            currentIndex,
+            byteArray.length);
         currentIndex += byteArray.length;
       }
     }
@@ -390,25 +369,22 @@ public class TftpClient {
       isSplit = true;
     }
     if (!isSplit) {
-      if (cmd.equals("DIRQ") || cmd.equals("DISC")) return true;
+      if (cmd.equals("DIRQ") || cmd.equals("DISC"))
+        return true;
     } else {
-      if (
-        (
-          firstPart.equals("LOGRQ") |
+      if ((firstPart.equals("LOGRQ") |
           firstPart.equals("RRQ") |
           firstPart.equals("WRQ") |
-          firstPart.equals("DELRQ")
-        ) &
-        !secondPart.equals("")
-      ) return true;
+          firstPart.equals("DELRQ")) &
+          !secondPart.equals(""))
+        return true;
     }
     return false;
   }
 
   public static void handleCommand(
-    String[] cmd,
-    ClientConnectionHandler clientC
-  ) {
+      String[] cmd,
+      ClientConnectionHandler clientC) {
     if (cmd[0].equals("LOGRQ")) {
       byte[] start = { 0, 7 };
       if (checkIfContainsNullByte(cmd[1].getBytes())) {
@@ -420,8 +396,7 @@ public class TftpClient {
         clientC.recentRequestOpCode = 7;
         clientC.waitingForResponse = true;
         clientC.out.write(
-          clientC.encdec.encode(concatenateArrays(start, userName))
-        );
+            clientC.encdec.encode(concatenateArrays(start, userName)));
         clientC.out.flush();
       } catch (IOException e) {
         clientC.recentRequestOpCode = 0;
@@ -442,8 +417,7 @@ public class TftpClient {
         clientC.workingFileName = cmd[1];
         clientC.waitingForResponse = true;
         clientC.out.write(
-          clientC.encdec.encode(concatenateArrays(start, fileName))
-        );
+            clientC.encdec.encode(concatenateArrays(start, fileName)));
         clientC.out.flush();
       } catch (IOException e) {
         clientC.recentRequestOpCode = 0;
@@ -469,16 +443,15 @@ public class TftpClient {
         clientC.waitingForResponse = true;
         clientC.workingFileName = cmd[1];
         clientC.out.write(
-          clientC.encdec.encode(concatenateArrays(start, fileName))
-        );
-       
+            clientC.encdec.encode(concatenateArrays(start, fileName)));
+
         clientC.out.flush();
       } catch (IOException e) {
         clientC.recentRequestOpCode = 0;
         clientC.workingFileName = "";
         clientC.waitingForResponse = false;
         e.printStackTrace();
-        
+
       }
     }
     if (cmd[0].equals("DELRQ")) {
@@ -492,8 +465,7 @@ public class TftpClient {
         clientC.recentRequestOpCode = 8;
         clientC.waitingForResponse = true;
         clientC.out.write(
-          clientC.encdec.encode(concatenateArrays(start, fileName))
-        );
+            clientC.encdec.encode(concatenateArrays(start, fileName)));
         clientC.out.flush();
       } catch (IOException e) {
         clientC.recentRequestOpCode = 0;
@@ -528,7 +500,8 @@ public class TftpClient {
 
   public static boolean checkIfContainsNullByte(byte[] bytes) {
     for (byte b : bytes) {
-      if (b == 0) return true;
+      if (b == 0)
+        return true;
     }
     return false;
   }
@@ -538,7 +511,7 @@ public class TftpClient {
     File folder = new File(System.getProperty("user.dir"));
     // Check if the folder exists and is a directory
     if (folder.exists() && folder.isDirectory()) {
-      // Get all files in the folder
+      // Get all files inputStream the folder
       File[] files = folder.listFiles();
       if (files != null) {
         for (File file : files) {
