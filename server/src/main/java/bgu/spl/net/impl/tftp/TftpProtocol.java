@@ -16,7 +16,7 @@ import bgu.spl.net.srv.ConnectionsImpl;
 
 public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
 
-  String basePath = System.getProperty("user.dir") + "/" + "Files";
+  String basePath = System.getProperty("user.dir") + "/" + "Flies";
   String clientName = "None";
   private int connectionId;
   private ConnectionsImpl<byte[]> connections;
@@ -308,6 +308,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]> {
               connections.logOut(clientName);
               clientName = "None";
               byte[] ack = {0, 4, 0, 0};
+              System.out.println("ACK send before terminate");
               connections.send(connectionId, ack);
               connections.disconnect(connectionId);
               shouldTerminate = true;
