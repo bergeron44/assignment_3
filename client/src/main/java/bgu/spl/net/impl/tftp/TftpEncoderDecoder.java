@@ -24,7 +24,6 @@ public class TftpEncoderDecoder implements MessageEncoderDecoder<byte[]> {
           len = 0;
           return bytesToReturn;
         }
-        System.out.println("opcode: " + opCode);
       }
 
     } else { // finnished reading opcode

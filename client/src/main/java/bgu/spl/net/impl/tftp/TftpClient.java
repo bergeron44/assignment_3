@@ -165,7 +165,6 @@ public class TftpClient {
         }
         if (clientC.recentRequestOpCode == 2) {
           short ACKblockNum = (short) (((short) ans[2] & 0xff) << 8 | (short) (ans[3] & 0xff));
-          System.out.println(ACKblockNum);
           if (clientC.writeCounter != ACKblockNum) {
             clientC.sendQueue.clear();
             clientC.recentRequestOpCode = 0;
