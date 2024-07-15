@@ -164,16 +164,15 @@ public class TftpClient {
           return;
         }
         if (clientC.recentRequestOpCode == 2) {
-          short blockNum = (short) (((short) ans[2] & 0xff) << 8 | (short) (ans[3] & 0xff));
-          System.out.println(blockNum);
-          if (clientC.writeCounter != blockNum) {
+          short ACKblockNum = (short) (((short) ans[2] & 0xff) << 8 | (short) (ans[3] & 0xff));
+          System.out.println(ACKblockNum);
+          if (clientC.writeCounter != ACKblockNum) {
             clientC.sendQueue.clear();
             clientC.recentRequestOpCode = 0;
             clientC.waitingForResponse = false;
             return;
           }
-          if (blockNum == 0) {
-
+          if (ACKblockNum == 0) {
             String filePath = System.getProperty("user.dir") + "/" + clientC.workingFileName;
             try {
 
@@ -361,22 +360,22 @@ public class TftpClient {
   public static boolean isCommandValid(String cmd) {
     int indexOfSpace = cmd.indexOf(' ', 0);
     boolean isSplit = false;
-    String firstPart = "";
-    String secondPart = "";
+    String initialSegment = "";
+    String extraPart = "";
     if (indexOfSpace != -1) {
-      firstPart = cmd.substring(0, indexOfSpace);
-      secondPart = cmd.substring(indexOfSpace + 1, cmd.length());
+      initialSegment = cmd.substring(0, indexOfSpace);
+      extraPart = cmd.substring(indexOfSpace + 1, cmd.length());
       isSplit = true;
     }
     if (!isSplit) {
       if (cmd.equals("DIRQ") || cmd.equals("DISC"))
         return true;
     } else {
-      if ((firstPart.equals("LOGRQ") |
-          firstPart.equals("RRQ") |
-          firstPart.equals("WRQ") |
-          firstPart.equals("DELRQ")) &
-          !secondPart.equals(""))
+      if ((initialSegment.equals("LOGRQ") |
+          initialSegment.equals("RRQ") |
+          initialSegment.equals("WRQ") |
+          initialSegment.equals("DELRQ")) &
+          !extraPart.equals(""))
         return true;
     }
     return false;
@@ -410,7 +409,6 @@ public class TftpClient {
         System.out.println("name contains null byte");
         return;
       }
-
       byte[] fileName = (cmd[1] + "\0").getBytes();
       try {
         clientC.recentRequestOpCode = 1;
@@ -444,14 +442,12 @@ public class TftpClient {
         clientC.workingFileName = cmd[1];
         clientC.out.write(
             clientC.encdec.encode(concatenateArrays(start, fileName)));
-
         clientC.out.flush();
       } catch (IOException e) {
         clientC.recentRequestOpCode = 0;
         clientC.workingFileName = "";
         clientC.waitingForResponse = false;
         e.printStackTrace();
-
       }
     }
     if (cmd[0].equals("DELRQ")) {
@@ -507,7 +503,7 @@ public class TftpClient {
   }
 
   public static List<String> getFileInDir() {
-    List<String> fileNamesList = new ArrayList<>();
+    List<String> fileList = new ArrayList<>();
     File folder = new File(System.getProperty("user.dir"));
     // Check if the folder exists and is a directory
     if (folder.exists() && folder.isDirectory()) {
@@ -516,13 +512,13 @@ public class TftpClient {
       if (files != null) {
         for (File file : files) {
           // Add file names to the list
-          fileNamesList.add(file.getName());
+          fileList.add(file.getName());
         }
       }
     } else {
       System.out.println("Folder does not exist or is not a directory.");
     }
 
-    return fileNamesList;
+    return fileList;
   }
 }
